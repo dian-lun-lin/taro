@@ -13,8 +13,14 @@
 
 namespace cf { // begin of namespace cf ===================================
 
-  class Scheduler;
-  class ThreadPool;
-  struct Task;
+  class Coroflow;
+  class Coro;
+  class Task;
+  class TaskHandle;
 
-} // end of namespace coro ==============================================
+  enum class State {
+    SUSPEND,
+    CONTINUE
+  };
+
+} // end of namespace cf ==============================================
