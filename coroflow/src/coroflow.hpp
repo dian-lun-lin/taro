@@ -4,7 +4,7 @@ namespace cf { // begin of namespace cf ===================================
 
 // ==========================================================================
 //
-// Decalartion of class Coroflow
+// Declaration of class Coroflow
 //
 // ==========================================================================
 //
@@ -37,6 +37,12 @@ class Coroflow {
     bool _stop{false};
     std::atomic<size_t> _finished{0};
 };
+
+// ==========================================================================
+//
+// Definition of class Coroflow
+//
+// ==========================================================================
 
 Coroflow::Coroflow(size_t num_threads) {
   _workers.reserve(num_threads);

@@ -106,7 +106,7 @@ void map_reduce(size_t num_iters, size_t num_parallel_tasks, size_t num_threads)
 
     for(size_t t = 0; t < num_parallel_tasks; ++t) {
       auto map_t = cf.emplace([](std::vector<int>& buf, std::vector<int>& data, int t) -> cf::Coro {
-        for(size_t s = 0; s < rand() % 3; ++s) {
+        for(size_t _ = 0; _ < rand() % 3; ++_) {
           co_await cf::State::SUSPEND;
         }
         buf[t] += data[t];
@@ -124,38 +124,366 @@ void map_reduce(size_t num_iters, size_t num_parallel_tasks, size_t num_threads)
   cf.wait();
 }
 
-TEST_CASE("map_reduce.1thread" * doctest::timeout(300)) {
+TEST_CASE("map_reduce.1iter.1ptask.1thread" * doctest::timeout(300)) {
   map_reduce(1, 1, 1);
-  map_reduce(3, 2, 1);
-  map_reduce(4, 13, 1);
-  map_reduce(10, 7, 1);
 }
 
-TEST_CASE("map_reduce.2threads" * doctest::timeout(300)) {
-  map_reduce(1, 1, 2);
-  map_reduce(3, 5, 2);
-  map_reduce(7, 11, 2);
-  map_reduce(20, 9, 2);
+TEST_CASE("map_reduce.2iters.1ptask.1thread" * doctest::timeout(300)) {
+  map_reduce(2, 1, 1);
 }
 
-TEST_CASE("map_reduce.3threads" * doctest::timeout(300)) {
-  map_reduce(1, 1, 3);
-  map_reduce(7, 20, 3);
-  map_reduce(3, 41, 3);
-  map_reduce(14, 12, 3);
+TEST_CASE("map_reduce.2iters.2ptasks.1thread" * doctest::timeout(300)) {
+  map_reduce(2, 2, 1);
 }
 
-TEST_CASE("map_reduce.4threads" * doctest::timeout(300)) {
-  map_reduce(2, 2, 4);
-  map_reduce(30, 90, 4);
-  map_reduce(11, 5, 4);
-  map_reduce(19, 102, 4);
+TEST_CASE("map_reduce.1iter.2ptasks.2threads" * doctest::timeout(300)) {
+  map_reduce(1, 2, 2);
 }
 
-TEST_CASE("map_reduce.5threads" * doctest::timeout(300)) {
-  map_reduce(3, 210, 4);
-  map_reduce(34, 123, 4);
-  map_reduce(3, 3, 4);
-  map_reduce(1, 999, 4);
+TEST_CASE("map_reduce.3iters.1ptasks.2threads" * doctest::timeout(300)) {
+  map_reduce(3, 1, 2);
 }
+
+TEST_CASE("map_reduce.37iters.10ptasks.2threads" * doctest::timeout(300)) {
+  map_reduce(37, 10, 2);
+}
+
+TEST_CASE("map_reduce.1iter.2ptasks.3threads" * doctest::timeout(300)) {
+  map_reduce(1, 2, 3);
+}
+
+TEST_CASE("map_reduce.4iters.4ptasks.3threads" * doctest::timeout(300)) {
+  map_reduce(4, 4, 3);
+}
+
+TEST_CASE("map_reduce.17iters.5ptasks.3threads" * doctest::timeout(300)) {
+  map_reduce(17, 5, 3);
+}
+
+TEST_CASE("map_reduce.57iters.15ptasks.3threads" * doctest::timeout(300)) {
+  map_reduce(57, 15, 3);
+}
+
+TEST_CASE("map_reduce.2iters.3ptasks.4threads" * doctest::timeout(300)) {
+  map_reduce(2, 3, 4);
+}
+
+TEST_CASE("map_reduce.17iters.5ptasks.4threads" * doctest::timeout(300)) {
+  map_reduce(17, 5, 4);
+}
+
+TEST_CASE("map_reduce.10iters.91ptasks.4threads" * doctest::timeout(300)) {
+  map_reduce(10, 91, 4);
+}
+
+// --------------------------------------------------------
+// Testcase:: Serial pipeline
+// --------------------------------------------------------
+
+// o - o - o
+// |   |   |
+// o - o - o
+// |   |   |
+// o - o - o
+
+void spipeline(size_t num_pipes, size_t num_lines, size_t num_threads) {
+  cf::Coroflow cf{num_threads};
+  std::vector<cf::TaskHandle> pl(num_lines * num_pipes);
+
+  std::vector<std::vector<int>> data(num_lines);
+  for(auto& d: data) {
+    d.resize(num_pipes);
+    for(auto& i: d) {
+      i = ::rand() % 10;
+    }
+  }
+  std::vector<int> counters(num_lines, 0);
+
+  for(size_t l = 0; l < num_lines; ++l) {
+    for(size_t p = 0; p < num_pipes; ++p) {
+      pl[l * num_pipes + p] = cf.emplace(
+        [](int l, int p, std::vector<std::vector<int>>& data, std::vector<int>& counters) -> cf::Coro {
+          for(size_t _ = 0; _ < rand() % 3; ++_) {
+            co_await cf::State::SUSPEND;
+          }
+          counters[l] += data[l][p];
+          co_return;
+      }(l, p, data, counters));
+    }
+  }
+
+  // dependencies
+  // vertical
+  for(size_t l = 0; l < num_lines - 1; ++l) {
+    for(size_t p = 0; p < num_pipes; ++p) {
+      pl[l * num_pipes + p].succeed(pl[(l + 1) * num_pipes]);
+    }
+  }
+
+  // horizontal
+  for(size_t l = 0; l < num_lines; ++l) {
+    for(size_t p = 0; p < num_pipes - 1; ++p) {
+      pl[l * num_pipes + p].succeed(pl[l * num_pipes + p + 1]);
+    }
+  }
+
+  cf.schedule();
+  cf.wait();
+
+  for(size_t i = 0; i < num_lines; ++i) {
+    REQUIRE(counters[i] == std::accumulate(data[i].begin(), data[i].end(), 0));
+  }
+
+}
+
+TEST_CASE("serial_pipeline.1pipe.1line.1thread" * doctest::timeout(300)) {
+  spipeline(1, 1, 1);
+}
+
+TEST_CASE("serial_pipeline.3pipes.1line.1thread" * doctest::timeout(300)) {
+  spipeline(3, 1, 1);
+}
+
+TEST_CASE("serial_pipeline.1pipe.3lines.1thread" * doctest::timeout(300)) {
+  spipeline(1, 3, 1);
+}
+
+TEST_CASE("serial_pipeline.3pipes.2lines.1thread" * doctest::timeout(300)) {
+  spipeline(3, 2, 1);
+}
+
+TEST_CASE("serial_pipeline.1pipe.1lines.2threads" * doctest::timeout(300)) {
+  spipeline(1, 1, 2);
+}
+
+TEST_CASE("serial_pipeline.1pipe.2lines.2threads" * doctest::timeout(300)) {
+  spipeline(1, 2, 2);
+}
+
+TEST_CASE("serial_pipeline.1pipe.3lines.2threads" * doctest::timeout(300)) {
+  spipeline(1, 3, 2);
+}
+
+TEST_CASE("serial_pipeline.1pipe.3lines.2threads" * doctest::timeout(300)) {
+  spipeline(1, 3, 2);
+}
+
+TEST_CASE("serial_pipeline.2pipes.1line.2threads" * doctest::timeout(300)) {
+  spipeline(2, 1, 2);
+}
+
+TEST_CASE("serial_pipeline.2pipes.2lines.2threads" * doctest::timeout(300)) {
+  spipeline(2, 2, 2);
+}
+
+TEST_CASE("serial_pipeline.3pipes.3lines.2threads" * doctest::timeout(300)) {
+  spipeline(3, 3, 2);
+}
+
+TEST_CASE("serial_pipeline.77pipes.11lines.2threads" * doctest::timeout(300)) {
+  spipeline(77, 11, 2);
+}
+
+TEST_CASE("serial_pipeline.1pipe.1line.3threads" * doctest::timeout(300)) {
+  spipeline(1, 1, 3);
+}
+
+TEST_CASE("serial_pipeline.1pipe.2lines.3threads" * doctest::timeout(300)) {
+  spipeline(1, 2, 3);
+}
+
+TEST_CASE("serial_pipeline.17pipes.99lines.3threads" * doctest::timeout(300)) {
+  spipeline(17, 99, 3);
+}
+
+TEST_CASE("serial_pipeline.53pipes.11lines.3threads" * doctest::timeout(300)) {
+  spipeline(53, 11, 3);
+}
+
+TEST_CASE("serial_pipeline.888pipes.91lines.3threads" * doctest::timeout(300)) {
+  spipeline(888, 91, 3);
+}
+
+TEST_CASE("serial_pipeline.1pipe.1line.4threads" * doctest::timeout(300)) {
+  spipeline(1, 1, 4);
+}
+
+TEST_CASE("serial_pipeline.1pipe.2lines.4threads" * doctest::timeout(300)) {
+  spipeline(1, 2, 4);
+}
+
+TEST_CASE("serial_pipeline.1pipe.3lines.4threads" * doctest::timeout(300)) {
+  spipeline(1, 3, 4);
+}
+
+TEST_CASE("serial_pipeline.2pipes.2lines.4threads" * doctest::timeout(300)) {
+  spipeline(2, 2, 4);
+}
+
+TEST_CASE("serial_pipeline.8pipes.11lines.4threads" * doctest::timeout(300)) {
+  spipeline(8, 11, 4);
+}
+
+TEST_CASE("serial_pipeline.48pipes.92lines.4threads" * doctest::timeout(300)) {
+  spipeline(48, 92, 4);
+}
+
+TEST_CASE("serial_pipeline.194pipes.551lines.4threads" * doctest::timeout(300)) {
+  spipeline(194, 551, 4);
+}
+
+// --------------------------------------------------------
+// Testcase:: Parallel pipeline
+// --------------------------------------------------------
+
+// o - o - o
+// |
+// o - o - o
+// |
+// o - o - o
+
+void ppipeline(size_t num_pipes, size_t num_lines, size_t num_threads) {
+  cf::Coroflow cf{num_threads};
+  std::vector<cf::TaskHandle> pl(num_lines * num_pipes);
+
+  std::vector<std::vector<int>> data(num_lines);
+  for(auto& d: data) {
+    d.resize(num_pipes);
+    for(auto& i: d) {
+      i = ::rand() % 10;
+    }
+  }
+  std::vector<int> counters(num_lines, 0);
+
+  for(size_t l = 0; l < num_lines; ++l) {
+    for(size_t p = 0; p < num_pipes; ++p) {
+      pl[l * num_pipes + p] = cf.emplace(
+        [](int l, int p, std::vector<std::vector<int>>& data, std::vector<int>& counters) -> cf::Coro {
+          for(size_t _ = 0; _ < rand() % 3; ++_) {
+            co_await cf::State::SUSPEND;
+          }
+          counters[l] += data[l][p];
+          co_return;
+      }(l, p, data, counters));
+    }
+  }
+
+  // dependencies
+  // vertical
+  for(size_t l = 0; l < num_lines - 1; ++l) {
+    pl[l * num_pipes].succeed(pl[(l + 1) * num_pipes]);
+  }
+
+  // horizontal
+  for(size_t l = 0; l < num_lines; ++l) {
+    for(size_t p = 0; p < num_pipes - 1; ++p) {
+      pl[l * num_pipes + p].succeed(pl[l * num_pipes + p + 1]);
+    }
+  }
+
+  cf.schedule();
+  cf.wait();
+
+  for(size_t i = 0; i < num_lines; ++i) {
+    REQUIRE(counters[i] == std::accumulate(data[i].begin(), data[i].end(), 0));
+  }
+
+}
+
+TEST_CASE("parallel_pipeline.1pipes.1lines.1threads" * doctest::timeout(300)) {
+  ppipeline(1, 1, 1);
+}
+
+TEST_CASE("parallel_pipeline.3pipes.1lines.1threads" * doctest::timeout(300)) {
+  ppipeline(3, 1, 1);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.3lines.1threads" * doctest::timeout(300)) {
+  ppipeline(1, 3, 1);
+}
+
+TEST_CASE("parallel_pipeline.3pipes.2lines.1threads" * doctest::timeout(300)) {
+  ppipeline(3, 2, 1);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.1lines.2threads" * doctest::timeout(300)) {
+  ppipeline(1, 1, 2);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.2lines.2threads" * doctest::timeout(300)) {
+  ppipeline(1, 2, 2);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.3lines.2threads" * doctest::timeout(300)) {
+  ppipeline(1, 3, 2);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.3lines.2threads" * doctest::timeout(300)) {
+  ppipeline(1, 3, 2);
+}
+
+TEST_CASE("parallel_pipeline.2pipes.1lines.2threads" * doctest::timeout(300)) {
+  ppipeline(2, 1, 2);
+}
+
+TEST_CASE("parallel_pipeline.2pipes.2lines.2threads" * doctest::timeout(300)) {
+  ppipeline(2, 2, 2);
+}
+
+TEST_CASE("parallel_pipeline.3pipes.3lines.2threads" * doctest::timeout(300)) {
+  ppipeline(3, 3, 2);
+}
+
+TEST_CASE("parallel_pipeline.77pipes.11lines.2threads" * doctest::timeout(300)) {
+  ppipeline(77, 11, 2);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.1lines.3threads" * doctest::timeout(300)) {
+  ppipeline(1, 1, 3);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.2lines.3threads" * doctest::timeout(300)) {
+  ppipeline(1, 2, 3);
+}
+
+TEST_CASE("parallel_pipeline.17pipes.99lines.3threads" * doctest::timeout(300)) {
+  ppipeline(17, 99, 3);
+}
+
+TEST_CASE("parallel_pipeline.53pipes.11lines.3threads" * doctest::timeout(300)) {
+  ppipeline(53, 11, 3);
+}
+
+TEST_CASE("parallel_pipeline.888pipes.91lines.3threads" * doctest::timeout(300)) {
+  ppipeline(888, 91, 3);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.1lines.4threads" * doctest::timeout(300)) {
+  ppipeline(1, 1, 4);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.2lines.4threads" * doctest::timeout(300)) {
+  ppipeline(1, 2, 4);
+}
+
+TEST_CASE("parallel_pipeline.1pipes.3lines.4threads" * doctest::timeout(300)) {
+  ppipeline(1, 3, 4);
+}
+
+TEST_CASE("parallel_pipeline.2pipes.2lines.4threads" * doctest::timeout(300)) {
+  ppipeline(2, 2, 4);
+}
+
+TEST_CASE("parallel_pipeline.8pipes.11lines.4threads" * doctest::timeout(300)) {
+  ppipeline(8, 11, 4);
+}
+
+TEST_CASE("parallel_pipeline.48pipes.92lines.4threads" * doctest::timeout(300)) {
+  ppipeline(48, 92, 4);
+}
+
+TEST_CASE("parallel_pipeline.194pipes.551lines.4threads" * doctest::timeout(300)) {
+  ppipeline(194, 551, 4);
+}
+
 
