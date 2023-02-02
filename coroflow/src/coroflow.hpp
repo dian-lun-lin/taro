@@ -21,6 +21,8 @@ class Coroflow {
 
     void schedule();
 
+    void wait();
+
   private:
 
     void _process(Task* tp);
@@ -62,6 +64,13 @@ Coroflow::~Coroflow() {
   for(auto& w: _workers) {
     w.join();
   } 
+}
+
+void Coroflow::wait() {
+  for(auto& w: _workers) {
+    w.join();
+  } 
+  _workers.clear();
 }
 
 TaskHandle Coroflow::emplace(Coro&& coro) {

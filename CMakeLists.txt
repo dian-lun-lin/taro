@@ -73,8 +73,8 @@ include(CTest)
 #)
 
 #set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}" "-Wall -Wextra -Wfatal-errors")
-#set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}" "-O2 -march=native")
-##set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" "-Xcompiler -fopenmp " )
+#set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}" "-fcoroutines")
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" "-std=c++20 -Xcompiler -std=c++20" )
 #set(CUDA_NVCC_FLAGS_DEBUG "${CUDA_NVCC_FLAGS_DEBUG}" "-lineinfo")
 #set(CUDA_NVCC_FLAGS_RELEASE "${CUDA_NVCC_FLAGS_RELEASE}" "-O2 -w ")
 
@@ -136,15 +136,18 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 
 # test
 if(${COROFLOW_BUILD_TESTS})
- 
+
 enable_testing()
+include(${COROFLOW_3RD_PARTY_DIR}/doctest/doctest.cmake)
+
 message(STATUS "Building unit tests ...")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${COROFLOW_UTEST_DIR})
 
 add_executable(simple ${COROFLOW_UTEST_DIR}/simple.cpp)
 target_include_directories(simple PRIVATE ${COROFLOW_3RD_PARTY_DIR}/doctest)
 target_link_libraries(simple Threads::Threads)
-add_test(linear_chain ${COROFLOW_UTEST_DIR}/simple -tc=linear_chain)
+#add_test(linear_chain ${COROFLOW_UTEST_DIR}/simple -tc=linear_chain)
+doctest_discover_tests(simple)
 
 #add_executable(matrix_operation ${SDNN_UTEST_DIR}/matrix_operation.cpp)
 #target_include_directories(matrix_operation PRIVATE ${SDNN_3RD_PARTY_DIR}/doctest)
@@ -167,27 +170,22 @@ endif()
 
 
 #find -arch
-#include(FindCUDA)
-#set(CUDA_ARCH_LIST Auto CACHE STRING
-    #"List of CUDA architectures (e.g. Pascal, Volta, etc) or \
-#compute capability versions (6.1, 7.0, etc) to generate code for. \
-#Set to Auto for automatic detection (default)."
-#)
-#cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS ${CUDA_ARCH_LIST})
-#list(APPEND CUDA_NVCC_FLAGS ${CUDA_ARCH_FLAGS})
+include(FindCUDA)
+set(CUDA_ARCH_LIST Auto CACHE STRING
+    "List of CUDA architectures (e.g. Pascal, Volta, etc) or \
+compute capability versions (6.1, 7.0, etc) to generate code for. \
+Set to Auto for automatic detection (default)."
+)
+cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS ${CUDA_ARCH_LIST})
+list(APPEND CUDA_NVCC_FLAGS ${CUDA_ARCH_FLAGS})
 
 # add executables
-#message(STATUS "building executables ...")
+message(STATUS "building executables ...")
 
-#set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 
-#cuda_add_executable(snig ${PROJECT_SOURCE_DIR}/main/main.cu)
-#target_link_libraries(snig ${PROJECT_NAME}
-
-
-#cuda_add_executable(to_binary ${PROJECT_SOURCE_DIR}/main/tsv_file_to_binary.cu)
-#target_link_libraries(to_binary ${PROJECT_NAME} stdc++fs)
-
-#set_property(TARGET snig PROPERTY CUDA_STANDARD 17)
+cuda_add_executable(pipeline ${PROJECT_SOURCE_DIR}/benchmarks/pipeline.cu)
+#target_compile_options(pipeline PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
+set_property(TARGET pipeline PROPERTY CUDA_STANDARD 20)
 #set_property(TARGET to_binary PROPERTY CUDA_STANDARD 17)
 

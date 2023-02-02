@@ -31,6 +31,8 @@ struct Coro { // Coroutine needs to be struct
 
         return awaiter{s};
       }
+
+      void return_void() noexcept {}
     };
 
     explicit Coro(promise_type* p);
