@@ -24,14 +24,20 @@ cf::Coro hybrid_task() {
   cudaMallocManaged(&a, M * K * sizeof(float));
   cudaMallocManaged(&b, K * N * sizeof(float));
   cudaMallocManaged(&c, M * N * sizeof(float));
+  
+  // Parameterize  (chain size
+  for(int i=0; i<2; i++) {
+    // TODO; 
+    CPU();  // set input value ???
 
-  cuda_matmul<<<8, 32>>>(a, b, c, M, K, N);
-  cudaEventRecord(finish);
-  auto isdone = [&finish]() { return cudaEventQuery(finish) == cudaSuccess;  };
+    cuda_matmul<<<8, 32>>>(a, b, c, M, K, N);
+    cudaEventRecord(finish);
+    auto isdone = [&finish]() { return cudaEventQuery(finish) == cudaSuccess;  };
 
-  while(!isdone()) {
-    co_await cf::State::SUSPEND;
-    std::cerr << "waiting...\n";
+    while(!isdone()) {
+      co_await cf::State::SUSPEND;
+      std::cerr << "waiting...\n";
+    }
   }
 
   cudaFree(a);
