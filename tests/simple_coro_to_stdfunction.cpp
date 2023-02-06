@@ -5,7 +5,7 @@
 struct Coro {
   struct promise_type {
     Coro get_return_object() { return Coro{this}; }
-    std::suspend_always initial_suspend() noexcept { return {}; }
+    std::suspend_always initial_suspend(int a) noexcept { return {}; }
     std::suspend_always final_suspend() noexcept { return {}; } 
                                                                
     void unhandled_exception() {}
@@ -48,7 +48,7 @@ int main() {
   std::function<Coro()> func2(task);
 
   Coro coro1 = func1();
-  Coro coro2 = func2();
+  Coro coro2 = func1();
   coro1.resume();
   coro2.resume();
 }

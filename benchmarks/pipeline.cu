@@ -46,11 +46,11 @@ cf::Coro hybrid_task() {
   co_return;
 }
 
-// 0 - 1 - 2 
+// o - o - o 
 // |   |   |
-// 3 - 4 - 5
+// o - o - o 
 // |   |   |
-// 6 - 7 - 8 
+// o - o - o 
 
 // TODO: right now I assume we only run pipeline once
 void pipeline(size_t num_pipes, size_t num_lines) {

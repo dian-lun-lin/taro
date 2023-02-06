@@ -9,6 +9,8 @@
 #include <future>
 #include <vector>
 #include <queue>
+#include <type_traits>
+#include <variant>
 
 
 namespace cf { // begin of namespace cf ===================================

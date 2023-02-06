@@ -1,6 +1,40 @@
 #pragma once
 
+#include "coro.hpp"
+
 namespace cf { // begin of namespace cf ===================================
+
+// ==========================================================================
+//
+// Task Traits
+//
+// ==========================================================================
+
+template <typename C>
+constexpr bool is_static_task_v = 
+  std::is_invocable_r_v<void, C>;
+
+template <typename C>
+constexpr bool is_coro_task_v = 
+  std::is_invocable_r_v<Coro, C>;
+
+template <typename T, typename>
+struct get_index;
+
+template <size_t I, typename... Ts>
+struct get_index_impl {};
+
+template <size_t I, typename T, typename... Ts>
+struct get_index_impl<I, T, T, Ts...> : std::integral_constant<size_t, I>{};
+
+template <size_t I, typename T, typename U, typename... Ts>
+struct get_index_impl<I, T, U, Ts...> : get_index_impl<I+1, T, Ts...>{};
+
+template <typename T, typename... Ts>
+struct get_index<T, std::variant<Ts...>> : get_index_impl<0, T, Ts...>{};
+
+template <typename T, typename... Ts>
+constexpr auto get_index_v = get_index<T, Ts...>::value;
 
 // ==========================================================================
 //
@@ -14,20 +48,58 @@ class Task {
   friend class Coroflow;
   friend class TaskHandle;
 
+  struct CoroTask {
+    template <typename C>
+    CoroTask(C&&);
+
+    std::function<void()> work;
+    Coro coro;
+    void resume() {
+      coro._resume();
+    }
+
+    bool done() {
+      return coro._done();
+    }
+  };
+
+  struct StaticTask {
+    template <typename C>
+    StaticTask(C&&);
+
+    std::function<void()> work;
+  };
+
+  using handle_t = std::variant<
+    CoroTask,
+    StaticTask
+  >;
+
   public:
 
-    Task(Coro&& coro);
+    template <typename... Args>
+    Task(Args&&... args);
+
+    constexpr static auto COROTASK   = get_index_v<CoroTask, handle_t>;
+    constexpr static auto STATICTASK = get_index_v<StaticTask, handle_t>;
 
   private:
 
     void _precede(Task* task);
-    void _resume();
-    bool _done();
     std::vector<Task*> _succs;
     std::vector<Task*> _preds;
     std::atomic<int> _join_counter{0};
-    Coro _coro;
+
+    handle_t _handle;
 };
+
+template <typename C>
+Task::StaticTask::StaticTask(C&& c): work{std::forward<C>(c)} {
+}
+
+template <typename C>
+Task::CoroTask::CoroTask(C&& c): work{std::forward<C>(c)}, coro{work()} {
+}
 
 // ==========================================================================
 //
@@ -35,21 +107,14 @@ class Task {
 //
 // ==========================================================================
 
-Task::Task(Coro&& coro): _coro{std::move(coro)} {
+template <typename... Args>
+Task::Task(Args&&... args):_handle{std::forward<Args>(args)...} {
 }
 
 void Task::_precede(Task* tp) {
   _preds.push_back(tp);
   tp->_succs.push_back(this);
   _join_counter.fetch_add(1, std::memory_order_relaxed);
-}
-
-void Task::_resume() {
-  _coro._resume();
-}
-
-bool Task::_done() {
-  return _coro._done();
 }
 
 // ==========================================================================
