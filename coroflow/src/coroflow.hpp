@@ -64,20 +64,24 @@ Coroflow::Coroflow(size_t num_threads) {
   _workers.reserve(num_threads);
 
   for(size_t t = 0; t < num_threads; ++t) {
-    _workers.emplace_back([this]() {
+    _workers.emplace_back([this, t]() {
         while(true) {
           Task* tp{nullptr};
           {
             std::unique_lock<std::mutex> lock(_mtx);
-            _cv.wait(lock, [this]{ return this->_stop || (!this->_queue.empty()); });
-            if(_stop) {
+            _cv.wait_for(lock, t * std::chrono::milliseconds(300), [this]{ return this->_stop.load() || (!this->_queue.empty()); });
+            if(_stop.load()) {
               return;
             }
 
-            tp = _queue.front();
-            _queue.pop();
+            if(!this->_queue.empty()) {
+              tp = _queue.front();
+              _queue.pop();
+            }
           }
-          _process(tp);
+          if(tp) {
+            _process(tp);
+          }
         }
       }
     );

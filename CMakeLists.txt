@@ -72,7 +72,8 @@ include(CTest)
   #$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:GNU>>:-O0 -g>
 #)
 
-set(CMAKE_CXX_FLAGS_DEBUG "-g -fsanitize=thread -Wall -Wextra -Wfatal-errors")
+#set(CMAKE_CXX_FLAGS_DEBUG "-g -fsanitize=thread -Wall -Wextra -Wfatal-errors")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra -Wfatal-errors")
 #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}" "-fcoroutines")
 set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" "-std=c++20 -Xcompiler -std=c++20" )
 #set(CUDA_NVCC_FLAGS_DEBUG "${CUDA_NVCC_FLAGS_DEBUG}" "-lineinfo")
