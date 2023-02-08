@@ -9,6 +9,7 @@
 #include <future>
 #include <vector>
 #include <queue>
+#include <stack>
 #include <type_traits>
 #include <variant>
 

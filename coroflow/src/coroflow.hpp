@@ -17,23 +17,32 @@ class Coroflow {
 
     ~Coroflow();
 
-    template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
+    template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
 
-    template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
+    template <typename C, std::enable_if_t<is_coro_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
 
     void schedule();
 
     void wait();
 
+    bool is_DAG();
+
   private:
 
     void _process(Task* tp);
     void _enqueue(Task* tp);
 
+
     void _invoke_coro_task(Task* tp);
     void _invoke_static_task(Task* tp);
+
+    bool _is_DAG(
+      Task* tp,
+      std::vector<bool>& visited,
+      std::vector<bool>& in_recursion
+    );
 
     std::vector<std::thread> _workers;
     std::vector<std::unique_ptr<Task>> _tasks;
@@ -41,7 +50,7 @@ class Coroflow {
 
     std::mutex _mtx;
     std::condition_variable _cv;
-    bool _stop{false};
+    std::atomic<bool> _stop{false};
     std::atomic<size_t> _finished{0};
 };
 
@@ -57,15 +66,17 @@ Coroflow::Coroflow(size_t num_threads) {
   for(size_t t = 0; t < num_threads; ++t) {
     _workers.emplace_back([this]() {
         while(true) {
-          std::unique_lock<std::mutex> lock(_mtx);
-          _cv.wait(lock, [this]{ return this->_stop || (!this->_queue.empty()); });
-          if(_stop) {
-            return;
-          }
+          Task* tp{nullptr};
+          {
+            std::unique_lock<std::mutex> lock(_mtx);
+            _cv.wait(lock, [this]{ return this->_stop || (!this->_queue.empty()); });
+            if(_stop) {
+              return;
+            }
 
-          auto tp = _queue.front();
-          _queue.pop();
-          lock.unlock();
+            tp = _queue.front();
+            _queue.pop();
+          }
           _process(tp);
         }
       }
@@ -88,24 +99,69 @@ void Coroflow::wait() {
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
 TaskHandle Coroflow::emplace(C&& c) {
-  auto t = std::make_unique<Task>(std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
+  auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
 TaskHandle Coroflow::emplace(C&& c) {
-  auto t = std::make_unique<Task>(std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
+  auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 void Coroflow::schedule() {
+  std::vector<Task*> srcs;
   for(auto& t: _tasks) {
     if(t->_join_counter.load() == 0) {
-      _enqueue(t.get());
+      srcs.push_back(t.get());
     }
   }
+
+  for(auto tp: srcs) {
+    _enqueue(tp);
+  }
+}
+
+bool Coroflow::is_DAG() {
+  std::stack<Task*> dfs;
+  std::vector<bool> visited(_tasks.size(), false);
+  std::vector<bool> in_recursion(_tasks.size(), false);
+
+  for(auto& t: _tasks) {
+    if(!_is_DAG(t.get(), visited, in_recursion)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool Coroflow::_is_DAG(
+  Task* tp,
+  std::vector<bool>& visited,
+  std::vector<bool>& in_recursion
+) {
+  if(!visited[tp->_id]) {
+    visited[tp->_id] = true;
+    in_recursion[tp->_id] = true;
+
+    for(auto succp: tp->_succs) {
+      if(!visited[succp->_id]) {
+        if(!_is_DAG(succp, visited, in_recursion)) {
+          return false;
+        }
+      }
+      else if(in_recursion[succp->_id]) {
+        return false;
+      }
+    }
+  }
+
+  in_recursion[tp->_id] = false;
+
+  return true;
 }
 
 void Coroflow::_invoke_static_task(Task* tp) {

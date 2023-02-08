@@ -10,13 +10,16 @@ namespace cf { // begin of namespace cf ===================================
 //
 // ==========================================================================
 
+
 template <typename C>
 constexpr bool is_static_task_v = 
-  std::is_invocable_r_v<void, C>;
+  std::is_invocable_r_v<void, C> &&
+  !std::is_invocable_r_v<Coro, C>;
 
 template <typename C>
 constexpr bool is_coro_task_v = 
   std::is_invocable_r_v<Coro, C>;
+  //!std::is_invocable_r_v<void, C>; // TODO: why we cannot add this line?
 
 template <typename T, typename>
 struct get_index;
@@ -52,7 +55,7 @@ class Task {
     template <typename C>
     CoroTask(C&&);
 
-    std::function<void()> work;
+    std::function<cf::Coro()> work;
     Coro coro;
     void resume() {
       coro._resume();
@@ -78,7 +81,7 @@ class Task {
   public:
 
     template <typename... Args>
-    Task(Args&&... args);
+    Task(size_t id, Args&&... args);
 
     constexpr static auto COROTASK   = get_index_v<CoroTask, handle_t>;
     constexpr static auto STATICTASK = get_index_v<StaticTask, handle_t>;
@@ -89,6 +92,7 @@ class Task {
     std::vector<Task*> _succs;
     std::vector<Task*> _preds;
     std::atomic<int> _join_counter{0};
+    size_t _id;
 
     handle_t _handle;
 };
@@ -98,7 +102,9 @@ Task::StaticTask::StaticTask(C&& c): work{std::forward<C>(c)} {
 }
 
 template <typename C>
-Task::CoroTask::CoroTask(C&& c): work{std::forward<C>(c)}, coro{work()} {
+Task::CoroTask::CoroTask(C&& c): 
+  work{std::forward<C>(c)}, coro{work()}
+{
 }
 
 // ==========================================================================
@@ -108,7 +114,7 @@ Task::CoroTask::CoroTask(C&& c): work{std::forward<C>(c)}, coro{work()} {
 // ==========================================================================
 
 template <typename... Args>
-Task::Task(Args&&... args):_handle{std::forward<Args>(args)...} {
+Task::Task(size_t id, Args&&... args):_id{id}, _handle{std::forward<Args>(args)...} {
 }
 
 void Task::_precede(Task* tp) {

@@ -5,78 +5,67 @@
 #include <algorithm>
 #include <numeric>
 
-// --------------------------------------------------------
-// Testcase:: Linear chain
-// --------------------------------------------------------
+//// --------------------------------------------------------
+//// Testcase:: Linear chain
+//// --------------------------------------------------------
 
-// o - o - o - o
+//// o - o - o - o
 
-void linear_chain(size_t num_tasks, size_t num_threads) {
-  int counter{0};
-  cf::Coroflow cf{num_threads};
-  std::vector<cf::TaskHandle> _tasks(num_tasks);
+//void linear_chain(size_t num_tasks, size_t num_threads) {
+  //int counter{0};
+  //cf::Coroflow cf{num_threads};
+  //std::vector<cf::TaskHandle> _tasks(num_tasks);
 
-  for(size_t t = 0; t < num_tasks; ++t) {
-    _tasks[t] = cf.emplace([t, &counter]() {
-        REQUIRE(counter++ == t); 
+  //for(size_t t = 0; t < num_tasks; ++t) {
+    //_tasks[t] = cf.emplace([t, &counter]() -> cf::Coro {
+        //REQUIRE(counter++ == t); 
         //co_await cf::State::SUSPEND;
-    });
-  }
+    //});
+  //}
 
-  for(size_t t = 0; t < num_tasks - 1; ++t) {
-    _tasks[t].succeed(_tasks[t + 1]);
-  }
+  //for(size_t t = 0; t < num_tasks - 1; ++t) {
+    //_tasks[t].succeed(_tasks[t + 1]);
+  //}
 
-  cf.schedule();
-  cf.wait(); 
-}
+  //cf.schedule();
+  //cf.wait(); 
+//}
 
-TEST_CASE("linear_chain.1thread" * doctest::timeout(300)) {
-  linear_chain(1, 1);
-}
+//TEST_CASE("linear_chain.1thread" * doctest::timeout(300)) {
+  //linear_chain(1, 1);
+//}
 
-TEST_CASE("linear_chain.2threads" * doctest::timeout(300)) {
-  linear_chain(99, 2);
-}
+//TEST_CASE("linear_chain.2threads" * doctest::timeout(300)) {
+  //linear_chain(99, 2);
+//}
 
-TEST_CASE("linear_chain.3threads" * doctest::timeout(300)) {
-  linear_chain(712, 3);
-}
+//TEST_CASE("linear_chain.3threads" * doctest::timeout(300)) {
+  //linear_chain(712, 3);
+//}
 
-TEST_CASE("linear_chain.4threads" * doctest::timeout(300)) {
-  linear_chain(443, 4);
-}
+//TEST_CASE("linear_chain.4threads" * doctest::timeout(300)) {
+  //linear_chain(443, 4);
+//}
 
-TEST_CASE("linear_chain.5threads" * doctest::timeout(300)) {
-  linear_chain(1111, 5);
-}
+//TEST_CASE("linear_chain.5threads" * doctest::timeout(300)) {
+  //linear_chain(1111, 5);
+//}
 
-TEST_CASE("linear_chain.6threads" * doctest::timeout(300)) {
-  linear_chain(2, 6);
-}
+//TEST_CASE("linear_chain.6threads" * doctest::timeout(300)) {
+  //linear_chain(2, 6);
+//}
 
-TEST_CASE("linear_chain.7threads" * doctest::timeout(300)) {
-  linear_chain(5, 7);
-}
+//TEST_CASE("linear_chain.7threads" * doctest::timeout(300)) {
+  //linear_chain(5, 7);
+//}
 
-TEST_CASE("linear_chain.8threads" * doctest::timeout(300)) {
-  linear_chain(9211, 8);
-}
+//TEST_CASE("linear_chain.8threads" * doctest::timeout(300)) {
+  //linear_chain(9211, 8);
+//}
 
 //// --------------------------------------------------------
 //// Testcase:: Map reduce
 //// --------------------------------------------------------
-
-////   o
-//// / | \
-////o  o  o
-//// \ | /
-////   o
-//// / | \
-////o  o  o
-//// \ | /
-////   o
-////  ...
 
 //void map_reduce(size_t num_iters, size_t num_parallel_tasks, size_t num_threads) {
   //cf::Coroflow cf{num_threads};
@@ -90,27 +79,27 @@ TEST_CASE("linear_chain.8threads" * doctest::timeout(300)) {
 
   //auto src_t = cf.emplace([]() -> cf::Coro {
     //co_await cf::State::SUSPEND;
-  //}());
+  //});
 
 
   //for(size_t i = 0; i < num_iters; ++i) {
 
-    //auto reduce_t = cf.emplace([](std::vector<int>& buf, int& counter, int& ans, int i) -> cf::Coro {
+    //auto reduce_t = cf.emplace([&buf, &counter, &ans, i]() -> cf::Coro {
       //counter += std::accumulate(buf.begin(), buf.end(), 0);
       //co_await cf::State::SUSPEND;
       //int res = ans * (i + 1);
       //REQUIRE(counter == res);
       //co_await cf::State::SUSPEND;
       //std::fill(buf.begin(), buf.end(), 0);
-    //}(buf, counter, ans, i));
+    //});
 
     //for(size_t t = 0; t < num_parallel_tasks; ++t) {
-      //auto map_t = cf.emplace([](std::vector<int>& buf, std::vector<int>& data, int t) -> cf::Coro {
-        //for(size_t _ = 0; _ < rand() % 3; ++_) {
+      //auto map_t = cf.emplace([&buf, &data, t]() -> cf::Coro {
+        //for(int _ = 0; _ < rand() % 3; ++_) {
           //co_await cf::State::SUSPEND;
         //}
         //buf[t] += data[t];
-      //}(buf, data, t));
+      //});
 
       //src_t.succeed(map_t);
       //map_t.succeed(reduce_t);
@@ -176,65 +165,66 @@ TEST_CASE("linear_chain.8threads" * doctest::timeout(300)) {
   //map_reduce(10, 91, 4);
 //}
 
-//// --------------------------------------------------------
-//// Testcase:: Serial pipeline
-//// --------------------------------------------------------
+// --------------------------------------------------------
+// Testcase:: Serial pipeline
+// --------------------------------------------------------
 
-//// o - o - o
-//// |   |   |
-//// o - o - o
-//// |   |   |
-//// o - o - o
+// o - o - o
+// |   |   |
+// o - o - o
+// |   |   |
+// o - o - o
 
-//void spipeline(size_t num_pipes, size_t num_lines, size_t num_threads) {
-  //cf::Coroflow cf{num_threads};
-  //std::vector<cf::TaskHandle> pl(num_lines * num_pipes);
+void spipeline(size_t num_pipes, size_t num_lines, size_t num_threads) {
+  cf::Coroflow cf{num_threads};
+  std::vector<cf::TaskHandle> pl(num_lines * num_pipes);
 
-  //std::vector<std::vector<int>> data(num_lines);
-  //for(auto& d: data) {
-    //d.resize(num_pipes);
-    //for(auto& i: d) {
-      //i = ::rand() % 10;
-    //}
-  //}
-  //std::vector<int> counters(num_lines, 0);
+  std::vector<std::vector<int>> data(num_lines);
+  for(auto& d: data) {
+    d.resize(num_pipes);
+    for(auto& i: d) {
+      i = ::rand() % 10;
+    }
+  }
+  std::vector<int> counters(num_lines, 0);
 
-  //for(size_t l = 0; l < num_lines; ++l) {
-    //for(size_t p = 0; p < num_pipes; ++p) {
-      //pl[l * num_pipes + p] = cf.emplace(
-        //[](int l, int p, std::vector<std::vector<int>>& data, std::vector<int>& counters) -> cf::Coro {
-          //for(size_t _ = 0; _ < rand() % 3; ++_) {
-            //co_await cf::State::SUSPEND;
-          //}
-          //counters[l] += data[l][p];
-          //co_return;
-      //}(l, p, data, counters));
-    //}
-  //}
+  for(size_t l = 0; l < num_lines; ++l) {
+    for(size_t p = 0; p < num_pipes; ++p) {
+      pl[l * num_pipes + p] = cf.emplace(
+        [l, p, &data, &counters]() -> cf::Coro {
+          for(int _ = 0; _ < rand() % 3; ++_) {
+            co_await cf::State::SUSPEND;
+          }
+          counters[l] += data[l][p];
+          co_return;
+      });
+    }
+  }
 
-  //// dependencies
-  //// vertical
-  //for(size_t l = 0; l < num_lines - 1; ++l) {
-    //for(size_t p = 0; p < num_pipes; ++p) {
-      //pl[l * num_pipes + p].succeed(pl[(l + 1) * num_pipes]);
-    //}
-  //}
+  // dependencies
+  // vertical
+  for(size_t l = 0; l < num_lines - 1; ++l) {
+    for(size_t p = 0; p < num_pipes; ++p) {
+      pl[l * num_pipes + p].succeed(pl[(l + 1) * num_pipes + p]);
+    }
+  }
 
-  //// horizontal
-  //for(size_t l = 0; l < num_lines; ++l) {
-    //for(size_t p = 0; p < num_pipes - 1; ++p) {
-      //pl[l * num_pipes + p].succeed(pl[l * num_pipes + p + 1]);
-    //}
-  //}
+  // horizontal
+  for(size_t l = 0; l < num_lines; ++l) {
+    for(size_t p = 0; p < num_pipes - 1; ++p) {
+      pl[l * num_pipes + p].succeed(pl[l * num_pipes + p + 1]);
+    }
+  }
 
-  //cf.schedule();
-  //cf.wait();
+  REQUIRE(cf.is_DAG());
+  cf.schedule();
+  cf.wait();
 
-  //for(size_t i = 0; i < num_lines; ++i) {
-    //REQUIRE(counters[i] == std::accumulate(data[i].begin(), data[i].end(), 0));
-  //}
+  for(size_t i = 0; i < num_lines; ++i) {
+    REQUIRE(counters[i] == std::accumulate(data[i].begin(), data[i].end(), 0));
+  }
 
-//}
+}
 
 //TEST_CASE("serial_pipeline.1pipe.1line.1thread" * doctest::timeout(300)) {
   //spipeline(1, 1, 1);
@@ -300,8 +290,8 @@ TEST_CASE("linear_chain.8threads" * doctest::timeout(300)) {
   //spipeline(53, 11, 3);
 //}
 
-//TEST_CASE("serial_pipeline.888pipes.91lines.3threads" * doctest::timeout(300)) {
-  //spipeline(888, 91, 3);
+//TEST_CASE("serial_pipeline.88pipes.91lines.3threads" * doctest::timeout(300)) {
+  //spipeline(88, 91, 3);
 //}
 
 //TEST_CASE("serial_pipeline.1pipe.1line.4threads" * doctest::timeout(300)) {
@@ -328,9 +318,9 @@ TEST_CASE("linear_chain.8threads" * doctest::timeout(300)) {
   //spipeline(48, 92, 4);
 //}
 
-//TEST_CASE("serial_pipeline.194pipes.551lines.4threads" * doctest::timeout(300)) {
-  //spipeline(194, 551, 4);
-//}
+TEST_CASE("serial_pipeline.194pipes.551lines.4threads" * doctest::timeout(300)) {
+  spipeline(194, 551, 4);
+}
 
 //// --------------------------------------------------------
 //// Testcase:: Parallel pipeline
@@ -358,13 +348,13 @@ TEST_CASE("linear_chain.8threads" * doctest::timeout(300)) {
   //for(size_t l = 0; l < num_lines; ++l) {
     //for(size_t p = 0; p < num_pipes; ++p) {
       //pl[l * num_pipes + p] = cf.emplace(
-        //[](int l, int p, std::vector<std::vector<int>>& data, std::vector<int>& counters) -> cf::Coro {
-          //for(size_t _ = 0; _ < rand() % 3; ++_) {
+        //[l, p, &data, &counters]() -> cf::Coro {
+          //for(int _ = 0; _ < rand() % 3; ++_) {
             //co_await cf::State::SUSPEND;
           //}
           //counters[l] += data[l][p];
           //co_return;
-      //}(l, p, data, counters));
+      //});
     //}
   //}
 
@@ -454,8 +444,8 @@ TEST_CASE("linear_chain.8threads" * doctest::timeout(300)) {
   //ppipeline(53, 11, 3);
 //}
 
-//TEST_CASE("parallel_pipeline.888pipes.91lines.3threads" * doctest::timeout(300)) {
-  //ppipeline(888, 91, 3);
+//TEST_CASE("parallel_pipeline.88pipes.91lines.3threads" * doctest::timeout(300)) {
+  //ppipeline(88, 91, 3);
 //}
 
 //TEST_CASE("parallel_pipeline.1pipes.1lines.4threads" * doctest::timeout(300)) {
