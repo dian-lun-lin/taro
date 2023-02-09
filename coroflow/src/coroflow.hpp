@@ -69,15 +69,14 @@ Coroflow::Coroflow(size_t num_threads) {
           Task* tp{nullptr};
           {
             std::unique_lock<std::mutex> lock(_mtx);
-            _cv.wait_for(lock, t * std::chrono::milliseconds(300), [this]{ return this->_stop.load() || (!this->_queue.empty()); });
-            if(_stop.load()) {
+            //_cv.wait_for(lock, t * std::chrono::milliseconds(300), [this]{ return this->_stop.load() || (!this->_queue.empty()); });
+            _cv.wait(lock, [this]{ return _stop || (!_queue.empty()); });
+            if(_stop) {
               return;
             }
 
-            if(!this->_queue.empty()) {
-              tp = _queue.front();
-              _queue.pop();
-            }
+            tp = _queue.front();
+            _queue.pop();
           }
           if(tp) {
             _process(tp);
@@ -177,8 +176,11 @@ void Coroflow::_invoke_static_task(Task* tp) {
   }
 
   if(_finished.fetch_add(1) + 1 == _tasks.size()) {
-    _stop = true;
-    _cv.notify_all();
+    {
+      std::scoped_lock lock(_mtx);
+      _stop = true;
+      _cv.notify_all();
+    }
   }
 }
 
@@ -196,8 +198,11 @@ void Coroflow::_invoke_coro_task(Task* tp) {
     }
 
     if(_finished.fetch_add(1) + 1 == _tasks.size()) {
-      _stop = true;
-      _cv.notify_all();
+      {
+        std::scoped_lock lock(_mtx);
+        _stop = true;
+        _cv.notify_all();
+      }
     }
   }
 }

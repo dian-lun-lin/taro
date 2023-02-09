@@ -50,31 +50,31 @@ set(COROFLOW_3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd-party)
 include(CTest)
 
 #compiler setting 
-#add_library(error_settings INTERFACE)
-#add_library(snig::error_settings ALIAS error_settings)
+add_library(error_settings INTERFACE)
+add_library(coroflow::error_settings ALIAS error_settings)
 
-#target_compile_options(
-  #error_settings
-  #INTERFACE
-  #$<$<COMPILE_LANGUAGE:Clang>:-Wall -Wextra -Wfatal-errors>
-  #$<$<COMPILE_LANGUAGE:GNU>:-Wall -Wextra -Wfatal-errors>
-#)
+target_compile_options(
+  error_settings
+  INTERFACE
+  $<$<COMPILE_LANGUAGE:Clang>:-Wall -Wextra -Wfatal-errors>
+  $<$<COMPILE_LANGUAGE:GNU>:-Wall -Wextra -Wfatal-errors>
+)
 
 ##optmization
-#add_library(optimize_settings INTERFACE)
-#add_library(snig::optimize_settings ALIAS optimize_settings)
+add_library(optimize_settings INTERFACE)
+add_library(coroflow::optimize_settings ALIAS optimize_settings)
 
-#target_compile_options(
-  #optimize_settings INTERFACE
-  #$<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:Clang>>:-O2 -march=native>
-  #$<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:GNU>>:-O2 -march=native>
-  #$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:Clang>>:-O0 -g>
-  #$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:GNU>>:-O0 -g>
-#)
+target_compile_options(
+  optimize_settings INTERFACE
+  $<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:Clang>>:-O3 -march=native>
+  $<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:GNU>>:-O3 -march=native>
+  $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:Clang>>:-O0 -g -fsanitize=thread>
+  $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:GNU>>:-O0 -g -fsanitize=thread>
+)
 
 #set(CMAKE_CXX_FLAGS_DEBUG "-g -fsanitize=thread -Wall -Wextra -Wfatal-errors")
-set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra -Wfatal-errors")
-#set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}" "-fcoroutines")
+#set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra -Wfatal-errors")
+#set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}" "-fsanitize=thread")
 set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" "-std=c++20 -Xcompiler -std=c++20" )
 #set(CUDA_NVCC_FLAGS_DEBUG "${CUDA_NVCC_FLAGS_DEBUG}" "-lineinfo")
 #set(CUDA_NVCC_FLAGS_RELEASE "${CUDA_NVCC_FLAGS_RELEASE}" "-O2 -w ")
@@ -181,12 +181,12 @@ cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS ${CUDA_ARCH_LIST})
 list(APPEND CUDA_NVCC_FLAGS ${CUDA_ARCH_FLAGS})
 
 # add executables
-#message(STATUS "building executables ...")
+message(STATUS "building executables ...")
 
-#set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 
-#cuda_add_executable(pipeline ${PROJECT_SOURCE_DIR}/benchmarks/pipeline.cu)
-#target_compile_options(pipeline PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
+cuda_add_executable(pipeline ${PROJECT_SOURCE_DIR}/benchmarks/pipeline.cu)
+target_compile_options(pipeline PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
 #set_property(TARGET pipeline PROPERTY CUDA_STANDARD 20)
 #set_property(TARGET to_binary PROPERTY CUDA_STANDARD 17)
 
