@@ -1,8 +1,9 @@
 #pragma once
 
-#include "../declarations.h"
-#include "coro.hpp"
-#include "task.hpp"
+#include "../../declarations.h"
+#include "../coro.hpp"
+#include "../task.hpp"
+#include "utility.hpp"
 
 namespace cf { // begin of namespace cf ===================================
 
@@ -16,6 +17,7 @@ namespace cf { // begin of namespace cf ===================================
 
 class Coroflow {
 
+  friend void CUDART_CB _cuda_stream_callback(cudaStream_t st, cudaError_t stat, void* void_args);
 
   public:
 
@@ -29,13 +31,14 @@ class Coroflow {
     template <typename C, std::enable_if_t<is_coro_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
 
+    auto suspend();
+    auto cuda_suspend(cudaStream_t st);
+
     void schedule();
 
     void wait();
 
     bool is_DAG();
-
-    auto suspend();
 
 
   private:
@@ -65,12 +68,52 @@ class Coroflow {
     std::atomic<size_t> _finished{0};
 };
 
+// cuda callback
+void CUDART_CB _cuda_stream_callback(cudaStream_t st, cudaError_t stat, void* void_args) {
+  checkCudaError(stat);
 
+  // unpack
+  auto* data = (std::pair<Coroflow*, Coro::promise_type*>*) void_args;
+  Coroflow* cf = data->first;
+  Coro::promise_type* prom = data->second;
+
+  cf->_callbacks[prom->_id] = false;
+  cf->_enqueue(cf->_tasks[prom->_id].get());
+}
 // ==========================================================================
 //
 // Definition of class Coroflow
 //
 // ==========================================================================
+
+auto Coroflow::cuda_suspend(cudaStream_t st) {
+
+  struct awaiter: std::suspend_always {
+    cudaStream_t _st;
+    std::pair<Coroflow*, Coro::promise_type*> _data;
+    explicit awaiter(Coroflow* cf, cudaStream_t st): _data{cf, nullptr}, _st{st} {}
+    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
+      _data.second = &(coro_handle.promise());
+      Coroflow* cf = _data.first;
+      cf->_callbacks[coro_handle.promise()._id] = true;
+      cudaStreamAddCallback(_st, _cuda_stream_callback, (void*)&_data, 0);
+    }
+    
+  };
+
+  return awaiter{this, st};
+}
+
+auto Coroflow::suspend() {  // value from co_await
+  struct awaiter: public std::suspend_always { // definition of awaitable for co_await
+    explicit awaiter() noexcept {}
+    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
+      // TODO: add CPU callback?
+    }
+  };
+
+  return awaiter{};
+}
 
 Coroflow::Coroflow(size_t num_threads) {
   _workers.reserve(num_threads);
@@ -125,17 +168,6 @@ TaskHandle Coroflow::emplace(C&& c) {
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
-}
-
-auto Coroflow::suspend() {  // value from co_await
-  struct awaiter: public std::suspend_always { // definition of awaitable for co_await
-    explicit awaiter() noexcept {}
-    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
-      // TODO: add CPU callback?
-    }
-  };
-
-  return awaiter{};
 }
 
 void Coroflow::schedule() {

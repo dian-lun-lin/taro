@@ -16,25 +16,14 @@ struct Coro { // Coroutine needs to be struct
   public:
 
     struct promise_type {
+
+      size_t _id;
       Coro get_return_object() { return Coro{this}; }
 
       std::suspend_always initial_suspend() noexcept { return {}; } // suspend a coroutine now and schedule it after
       std::suspend_always final_suspend() noexcept { return {}; } // suspend to decrement dependencies for a task graph
                                                                   // otherwise we don't know whether a coroutine is finished
       void unhandled_exception() {}
-      
-      // TODO: what is the state value for initial suspend and final return ???
-      //
-      auto await_transform(State s) noexcept {  // value from co_await
-        struct awaiter: public std::suspend_always { // definition of awaitable for co_await
-          State s;
-          explicit awaiter(State s) noexcept: s{s} {}
-          void await_suspend(std::coroutine_handle<>) const noexcept {}
-        };
-
-        return awaiter{s};
-      }
-
       void return_void() noexcept {}
     };
 

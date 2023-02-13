@@ -147,25 +147,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${COROFLOW_UTEST_DIR})
 add_executable(simple ${COROFLOW_UTEST_DIR}/simple.cpp)
 target_include_directories(simple PRIVATE ${COROFLOW_3RD_PARTY_DIR}/doctest)
 target_link_libraries(simple Threads::Threads)
-#add_test(linear_chain ${COROFLOW_UTEST_DIR}/simple -tc=linear_chain)
+add_test(linear_chain ${COROFLOW_UTEST_DIR}/simple -tc=linear_chain)
 doctest_discover_tests(simple)
-
-#add_executable(matrix_operation ${SDNN_UTEST_DIR}/matrix_operation.cpp)
-#target_include_directories(matrix_operation PRIVATE ${SDNN_3RD_PARTY_DIR}/doctest)
-#add_test(CSR_matrix_to_eigen_sparse ${SDNN_UTEST_DIR}/matrix_operation -tc=CSR_matrix_to_eigen_sparse)
-
-#cuda_add_executable(task ${SDNN_UTEST_DIR}/task.cu)
-#target_include_directories(task PRIVATE ${SDNN_3RD_PARTY_DIR}/doctest)
-#add_test(GPU_check_nnz ${SDNN_UTEST_DIR}/task -tc=check_nnz)
-#add_test(GPU_task ${SDNN_UTEST_DIR}/task -tc=task_GPU)
-
-#add_executable(thread_pool ${SDNN_UTEST_DIR}/thread_pool.cpp)
-#target_include_directories(thread_pool PRIVATE ${SDNN_3RD_PARTY_DIR}/doctest)
-#target_link_libraries(thread_pool Threads::Threads)
-#add_test(ThreadPool_sum ${SDNN_UTEST_DIR}/thread_pool -tc=sum)
-#add_test(ThreadPool_create ${SDNN_UTEST_DIR}/thread_pool -tc=create_pool)
-#add_test(ThreadPool_enqueue_type ${SDNN_UTEST_DIR}/thread_pool -tc=enque_type)
-#add_test(ThreadPool_enqueue_large_size ${SDNN_UTEST_DIR}/thread_pool -tc=enque_large_size)
 
 endif()
 
@@ -185,8 +168,10 @@ message(STATUS "building executables ...")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 
-cuda_add_executable(pipeline ${PROJECT_SOURCE_DIR}/benchmarks/pipeline.cu)
-target_compile_options(pipeline PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
+#cuda_add_executable(pipeline ${PROJECT_SOURCE_DIR}/benchmarks/pipeline.cu)
+#target_compile_options(pipeline PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
+cuda_add_executable(independent ${PROJECT_SOURCE_DIR}/benchmarks/independent_v2.cu)
+target_compile_options(independent PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
 #set_property(TARGET pipeline PROPERTY CUDA_STANDARD 20)
 #set_property(TARGET to_binary PROPERTY CUDA_STANDARD 17)
 

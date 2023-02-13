@@ -1,6 +1,6 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
-#include <coroflow/coroflow.hpp>
+#include <coroflow/src/coroflow.hpp>
 #include <vector>
 #include <algorithm>
 #include <numeric>
@@ -17,9 +17,9 @@ void linear_chain(size_t num_tasks, size_t num_threads) {
   std::vector<cf::TaskHandle> _tasks(num_tasks);
 
   for(size_t t = 0; t < num_tasks; ++t) {
-    _tasks[t] = cf.emplace([t, &counter]() -> cf::Coro {
+    _tasks[t] = cf.emplace([t, &counter, &cf]() -> cf::Coro {
         REQUIRE(counter++ == t); 
-        co_await cf::State::SUSPEND;
+        co_await cf.suspend();
     });
   }
 
@@ -78,26 +78,26 @@ void map_reduce(size_t num_iters, size_t num_parallel_tasks, size_t num_threads)
   std::iota(data.begin(), data.end(), 0);
   int ans = std::accumulate(data.begin(), data.end(), 0);
 
-  auto src_t = cf.emplace([]() -> cf::Coro {
-    co_await cf::State::SUSPEND;
+  auto src_t = cf.emplace([&cf]() -> cf::Coro {
+    co_await cf.suspend();
   });
 
 
   for(size_t i = 0; i < num_iters; ++i) {
 
-    auto reduce_t = cf.emplace([&buf, &counter, &ans, i]() -> cf::Coro {
+    auto reduce_t = cf.emplace([&cf, &buf, &counter, &ans, i]() -> cf::Coro {
       counter += std::accumulate(buf.begin(), buf.end(), 0);
-      co_await cf::State::SUSPEND;
+      co_await cf.suspend();
       int res = ans * (i + 1);
       REQUIRE(counter == res);
-      co_await cf::State::SUSPEND;
+      co_await cf.suspend();
       std::fill(buf.begin(), buf.end(), 0);
     });
 
     for(size_t t = 0; t < num_parallel_tasks; ++t) {
-      auto map_t = cf.emplace([&buf, &data, t]() -> cf::Coro {
+      auto map_t = cf.emplace([&cf, &buf, &data, t]() -> cf::Coro {
         for(int _ = 0; _ < rand() % 3; ++_) {
-          co_await cf::State::SUSPEND;
+          co_await cf.suspend();
         }
         buf[t] += data[t];
       });
@@ -193,9 +193,9 @@ void spipeline(size_t num_pipes, size_t num_lines, size_t num_threads) {
   for(size_t l = 0; l < num_lines; ++l) {
     for(size_t p = 0; p < num_pipes; ++p) {
       pl[l * num_pipes + p] = cf.emplace(
-        [l, p, &data, &counters]() -> cf::Coro {
+        [&cf, l, p, &data, &counters]() -> cf::Coro {
           for(int _ = 0; _ < rand() % 3; ++_) {
-            co_await cf::State::SUSPEND;
+            co_await cf.suspend();
           }
           counters[l] += data[l][p];
           co_return;
@@ -350,9 +350,9 @@ void ppipeline(size_t num_pipes, size_t num_lines, size_t num_threads) {
   for(size_t l = 0; l < num_lines; ++l) {
     for(size_t p = 0; p < num_pipes; ++p) {
       pl[l * num_pipes + p] = cf.emplace(
-        [l, p, &data, &counters]() -> cf::Coro {
+        [&cf, l, p, &data, &counters]() -> cf::Coro {
           for(int _ = 0; _ < rand() % 3; ++_) {
-            co_await cf::State::SUSPEND;
+            co_await cf.suspend();
           }
           counters[l] += data[l][p];
           co_return;
