@@ -144,11 +144,20 @@ include(${COROFLOW_3RD_PARTY_DIR}/doctest/doctest.cmake)
 message(STATUS "Building unit tests ...")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${COROFLOW_UTEST_DIR})
 
-add_executable(simple ${COROFLOW_UTEST_DIR}/simple.cpp)
+add_executable(simple_cpu ${COROFLOW_UTEST_DIR}/simple.cpp)
+target_include_directories(simple_cpu PRIVATE ${COROFLOW_3RD_PARTY_DIR}/doctest)
+target_link_libraries(simple_cpu Threads::Threads)
+doctest_discover_tests(simple_cpu)
+
+cuda_add_executable(simple ${COROFLOW_UTEST_DIR}/simple.cu)
 target_include_directories(simple PRIVATE ${COROFLOW_3RD_PARTY_DIR}/doctest)
 target_link_libraries(simple Threads::Threads)
-add_test(linear_chain ${COROFLOW_UTEST_DIR}/simple -tc=linear_chain)
 doctest_discover_tests(simple)
+
+cuda_add_executable(independent ${COROFLOW_UTEST_DIR}/independent.cu)
+target_include_directories(independent PRIVATE ${COROFLOW_3RD_PARTY_DIR}/doctest)
+target_link_libraries(independent Threads::Threads)
+doctest_discover_tests(independent)
 
 endif()
 
@@ -170,8 +179,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 
 #cuda_add_executable(pipeline ${PROJECT_SOURCE_DIR}/benchmarks/pipeline.cu)
 #target_compile_options(pipeline PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
-cuda_add_executable(independent ${PROJECT_SOURCE_DIR}/benchmarks/independent.cu)
-target_compile_options(independent PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
+cuda_add_executable(inde ${PROJECT_SOURCE_DIR}/benchmarks/independent.cu)
+target_compile_options(inde PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
 #set_property(TARGET pipeline PROPERTY CUDA_STANDARD 20)
 #set_property(TARGET to_binary PROPERTY CUDA_STANDARD 17)
 

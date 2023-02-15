@@ -1,10 +1,10 @@
 #include <coroflow/src/cuda/coroflow_v1.hpp>
 #include <coroflow/src/cuda/coroflow_v2.hpp>
 #include <coroflow/src/cuda/coroflow_v3.hpp>
+#include <coroflow/src/cuda/algorithm.hpp>
 #include <vector>
 #include <algorithm>
 #include <numeric>
-#include <coroflow/algorithms/matmul.hpp>
 #include <cassert>
 #include <cstring>
 #include <chrono>

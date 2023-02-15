@@ -9,7 +9,7 @@ namespace cf { // begin of namespace cf ===================================
 
 // cudaStreamAddcallback
 // cudaStream is handled by Coroflow
-//
+
 class CoroflowV3;
 
   
