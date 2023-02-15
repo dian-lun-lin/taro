@@ -49,6 +49,9 @@ constexpr auto get_index_v = get_index<T, Ts...>::value;
 class Task {
 
   friend class Coroflow;
+  friend class CoroflowV1;
+  friend class CoroflowV2;
+  friend class CoroflowV3;
   friend class TaskHandle;
 
   struct CoroTask {

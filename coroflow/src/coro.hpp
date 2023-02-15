@@ -11,6 +11,9 @@ namespace cf { // begin of namespace cf ===================================
 struct Coro { // Coroutine needs to be struct
 
   friend class Coroflow;
+  friend class CoroflowV1;
+  friend class CoroflowV2;
+  friend class CoroflowV3;
   friend class Task;
 
   public:

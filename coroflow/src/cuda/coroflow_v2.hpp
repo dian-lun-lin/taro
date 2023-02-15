@@ -1,29 +1,32 @@
 #pragma once
 
-#include "../declarations.h"
-#include "coro.hpp"
-#include "task.hpp"
+#include "../../declarations.h"
+#include "../coro.hpp"
+#include "../task.hpp"
+#include "utility.hpp"
 
 namespace cf { // begin of namespace cf ===================================
 
-// without cuda (.cu file)
+// cudaStreamAddcallback
+// cudaStream is handled by users
 
 // ==========================================================================
 //
-// Declaration of class Coroflow
+// Declaration of class CoroflowV2
 //
 // ==========================================================================
 //
 
 
-class Coroflow {
+class CoroflowV2 {
 
+  friend void CUDART_CB _cuda_stream_callback_v2(cudaStream_t st, cudaError_t stat, void* void_args);
 
   public:
 
-    Coroflow(size_t num_threads);
+    CoroflowV2(size_t num_threads);
 
-    ~Coroflow();
+    ~CoroflowV2();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -31,13 +34,14 @@ class Coroflow {
     template <typename C, std::enable_if_t<is_coro_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
 
+    auto suspend();
+    auto cuda_suspend(cudaStream_t st);
+
     void schedule();
 
     void wait();
 
     bool is_DAG();
-
-    auto suspend();
 
 
   private:
@@ -67,14 +71,54 @@ class Coroflow {
     std::atomic<size_t> _finished{0};
 };
 
+// cuda callback
+void CUDART_CB _cuda_stream_callback_v2(cudaStream_t st, cudaError_t stat, void* void_args) {
+  checkCudaError(stat);
 
+  // unpack
+  auto* data = (std::pair<CoroflowV2*, Coro::promise_type*>*) void_args;
+  CoroflowV2* cf = data->first;
+  Coro::promise_type* prom = data->second;
+
+  cf->_callbacks[prom->_id] = false;
+  cf->_enqueue(cf->_tasks[prom->_id].get());
+}
 // ==========================================================================
 //
-// Definition of class Coroflow
+// Definition of class CoroflowV2
 //
 // ==========================================================================
 
-Coroflow::Coroflow(size_t num_threads) {
+auto CoroflowV2::cuda_suspend(cudaStream_t st) {
+
+  struct awaiter: std::suspend_always {
+    cudaStream_t _st;
+    std::pair<CoroflowV2*, Coro::promise_type*> _data;
+    explicit awaiter(CoroflowV2* cf, cudaStream_t st): _data{cf, nullptr}, _st{st} {}
+    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
+      _data.second = &(coro_handle.promise());
+      CoroflowV2* cf = _data.first;
+      cf->_callbacks[coro_handle.promise()._id] = true;
+      cudaStreamAddCallback(_st, _cuda_stream_callback_v2, (void*)&_data, 0);
+    }
+    
+  };
+
+  return awaiter{this, st};
+}
+
+auto CoroflowV2::suspend() {  // value from co_await
+  struct awaiter: public std::suspend_always { // definition of awaitable for co_await
+    explicit awaiter() noexcept {}
+    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
+      // TODO: add CPU callback?
+    }
+  };
+
+  return awaiter{};
+}
+
+CoroflowV2::CoroflowV2(size_t num_threads) {
   _workers.reserve(num_threads);
 
   for(size_t t = 0; t < num_threads; ++t) {
@@ -101,13 +145,13 @@ Coroflow::Coroflow(size_t num_threads) {
   }
 }
 
-Coroflow::~Coroflow() {
+CoroflowV2::~CoroflowV2() {
   for(auto& w: _workers) {
     w.join();
   } 
 }
 
-void Coroflow::wait() {
+void CoroflowV2::wait() {
   for(auto& w: _workers) {
     w.join();
   } 
@@ -115,32 +159,21 @@ void Coroflow::wait() {
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle Coroflow::emplace(C&& c) {
+TaskHandle CoroflowV2::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle Coroflow::emplace(C&& c) {
+TaskHandle CoroflowV2::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-auto Coroflow::suspend() {  // value from co_await
-  struct awaiter: public std::suspend_always { // definition of awaitable for co_await
-    explicit awaiter() noexcept {}
-    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
-      // TODO: add CPU callback?
-    }
-  };
-
-  return awaiter{};
-}
-
-void Coroflow::schedule() {
+void CoroflowV2::schedule() {
 
   _callbacks.resize(_tasks.size(), false);
 
@@ -157,7 +190,7 @@ void Coroflow::schedule() {
 }
 
 
-bool Coroflow::is_DAG() {
+bool CoroflowV2::is_DAG() {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -171,7 +204,7 @@ bool Coroflow::is_DAG() {
   return true;
 }
 
-bool Coroflow::_is_DAG(
+bool CoroflowV2::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion
@@ -197,7 +230,7 @@ bool Coroflow::_is_DAG(
   return true;
 }
 
-void Coroflow::_invoke_static_task(Task* tp) {
+void CoroflowV2::_invoke_static_task(Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -214,7 +247,7 @@ void Coroflow::_invoke_static_task(Task* tp) {
   }
 }
 
-void Coroflow::_invoke_coro_task(Task* tp) {
+void CoroflowV2::_invoke_coro_task(Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   if(!coro->done()) {
     coro->resume();
@@ -239,7 +272,7 @@ void Coroflow::_invoke_coro_task(Task* tp) {
   }
 }
 
-void Coroflow::_process(Task* tp) {
+void CoroflowV2::_process(Task* tp) {
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -254,7 +287,7 @@ void Coroflow::_process(Task* tp) {
   }
 }
 
-void Coroflow::_enqueue(Task* tp) {
+void CoroflowV2::_enqueue(Task* tp) {
   {
     std::unique_lock<std::mutex> lock(_mtx);
     _queue.push(tp);

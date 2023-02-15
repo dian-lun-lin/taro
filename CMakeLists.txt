@@ -170,7 +170,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 
 #cuda_add_executable(pipeline ${PROJECT_SOURCE_DIR}/benchmarks/pipeline.cu)
 #target_compile_options(pipeline PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
-cuda_add_executable(independent ${PROJECT_SOURCE_DIR}/benchmarks/independent_v2.cu)
+cuda_add_executable(independent ${PROJECT_SOURCE_DIR}/benchmarks/independent.cu)
 target_compile_options(independent PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
 #set_property(TARGET pipeline PROPERTY CUDA_STANDARD 20)
 #set_property(TARGET to_binary PROPERTY CUDA_STANDARD 17)

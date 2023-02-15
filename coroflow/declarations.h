@@ -21,10 +21,10 @@ namespace cf { // begin of namespace cf ===================================
   class Task;
   class TaskHandle;
 
-  enum class State {
-    SUSPEND,
-    CONTINUE
-  };
+  //enum class State {
+    //SUSPEND,
+    //CONTINUE
+  //};
 
 
 } // end of namespace cf ==============================================

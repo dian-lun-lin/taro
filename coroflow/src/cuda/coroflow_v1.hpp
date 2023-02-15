@@ -1,29 +1,32 @@
 #pragma once
 
-#include "../declarations.h"
-#include "coro.hpp"
-#include "task.hpp"
+#include "../../declarations.h"
+#include "../coro.hpp"
+#include "../task.hpp"
+#include "utility.hpp"
 
 namespace cf { // begin of namespace cf ===================================
 
-// without cuda (.cu file)
+// without cudaStreamAddcallback
+// user:
+//  while(cudaEventQuery(finish) != cudaSucess) { co_await; }
+// cudaStream is handled by users
 
 // ==========================================================================
 //
-// Declaration of class Coroflow
+// Declaration of class CoroflowV1
 //
 // ==========================================================================
 //
 
 
-class Coroflow {
-
+class CoroflowV1 {
 
   public:
 
-    Coroflow(size_t num_threads);
+    CoroflowV1(size_t num_threads);
 
-    ~Coroflow();
+    ~CoroflowV1();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -33,11 +36,11 @@ class Coroflow {
 
     void schedule();
 
+    auto suspend();
+
     void wait();
 
     bool is_DAG();
-
-    auto suspend();
 
 
   private:
@@ -59,7 +62,6 @@ class Coroflow {
     std::vector<std::thread> _workers;
     std::vector<std::unique_ptr<Task>> _tasks;
     std::queue<Task*> _queue;
-    std::vector<bool> _callbacks;
 
     std::mutex _mtx;
     std::condition_variable _cv;
@@ -67,14 +69,13 @@ class Coroflow {
     std::atomic<size_t> _finished{0};
 };
 
-
 // ==========================================================================
 //
-// Definition of class Coroflow
+// Definition of class CoroflowV1
 //
 // ==========================================================================
 
-Coroflow::Coroflow(size_t num_threads) {
+CoroflowV1::CoroflowV1(size_t num_threads) {
   _workers.reserve(num_threads);
 
   for(size_t t = 0; t < num_threads; ++t) {
@@ -101,13 +102,22 @@ Coroflow::Coroflow(size_t num_threads) {
   }
 }
 
-Coroflow::~Coroflow() {
+CoroflowV1::~CoroflowV1() {
   for(auto& w: _workers) {
     w.join();
   } 
 }
 
-void Coroflow::wait() {
+auto CoroflowV1::suspend() {  // value from co_await
+  struct awaiter: public std::suspend_always { // definition of awaitable for co_await
+    explicit awaiter() noexcept {}
+    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {}
+  };
+
+  return awaiter{};
+}
+
+void CoroflowV1::wait() {
   for(auto& w: _workers) {
     w.join();
   } 
@@ -115,34 +125,21 @@ void Coroflow::wait() {
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle Coroflow::emplace(C&& c) {
+TaskHandle CoroflowV1::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle Coroflow::emplace(C&& c) {
+TaskHandle CoroflowV1::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-auto Coroflow::suspend() {  // value from co_await
-  struct awaiter: public std::suspend_always { // definition of awaitable for co_await
-    explicit awaiter() noexcept {}
-    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
-      // TODO: add CPU callback?
-    }
-  };
-
-  return awaiter{};
-}
-
-void Coroflow::schedule() {
-
-  _callbacks.resize(_tasks.size(), false);
+void CoroflowV1::schedule() {
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
@@ -157,7 +154,7 @@ void Coroflow::schedule() {
 }
 
 
-bool Coroflow::is_DAG() {
+bool CoroflowV1::is_DAG() {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -171,7 +168,7 @@ bool Coroflow::is_DAG() {
   return true;
 }
 
-bool Coroflow::_is_DAG(
+bool CoroflowV1::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion
@@ -197,7 +194,7 @@ bool Coroflow::_is_DAG(
   return true;
 }
 
-void Coroflow::_invoke_static_task(Task* tp) {
+void CoroflowV1::_invoke_static_task(Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -214,13 +211,11 @@ void Coroflow::_invoke_static_task(Task* tp) {
   }
 }
 
-void Coroflow::_invoke_coro_task(Task* tp) {
+void CoroflowV1::_invoke_coro_task(Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   if(!coro->done()) {
     coro->resume();
-    if(!_callbacks[coro->coro._coro_handle.promise()._id]) {
-      _enqueue(tp);
-    }
+    _enqueue(tp);
   }
   else {
     for(auto succp: tp->_succs) {
@@ -239,7 +234,7 @@ void Coroflow::_invoke_coro_task(Task* tp) {
   }
 }
 
-void Coroflow::_process(Task* tp) {
+void CoroflowV1::_process(Task* tp) {
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -254,7 +249,7 @@ void Coroflow::_process(Task* tp) {
   }
 }
 
-void Coroflow::_enqueue(Task* tp) {
+void CoroflowV1::_enqueue(Task* tp) {
   {
     std::unique_lock<std::mutex> lock(_mtx);
     _queue.push(tp);
