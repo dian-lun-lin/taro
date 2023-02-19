@@ -12,6 +12,8 @@
 #include <stack>
 #include <type_traits>
 #include <variant>
+#include <taskflow/wsq.hpp>
+#include <random>
 
 
 namespace cf { // begin of namespace cf ===================================

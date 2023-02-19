@@ -13,22 +13,6 @@ namespace cf { // begin of namespace cf ===================================
 class CoroflowV3;
 
   
-template <typename C>
-constexpr bool is_cuda_task_v = 
-  std::is_invocable_r_v<void, C, cudaStream_t>;
-
-struct cudaStream {
-  cudaStream_t st;
-  size_t id;
-};
-
-struct cudaCallbackData {
-  CoroflowV3* cf;
-  Coro::promise_type* prom;
-  size_t stream_id;
-  //size_t num_kernels;
-};
-
 // ==========================================================================
 //
 // Declaration of class CoroflowV3
@@ -40,6 +24,18 @@ struct cudaCallbackData {
 class CoroflowV3 {
 
   friend void CUDART_CB _cuda_stream_callback_v3(cudaStream_t st, cudaError_t stat, void* void_args);
+
+  struct cudaStream {
+    cudaStream_t st;
+    size_t id;
+  };
+
+  struct cudaCallbackData {
+    CoroflowV3* cf;
+    Coro::promise_type* prom;
+    size_t stream_id;
+    //size_t num_kernels;
+  };
 
 
 
@@ -89,7 +85,11 @@ class CoroflowV3 {
 
     std::vector<std::unique_ptr<Task>> _tasks;
     std::queue<Task*> _queue;
-    std::vector<bool> _callbacks;
+    // std::vector<bool> has specilized implementation
+    // concurrently writes to std::vector<bool> is never OK
+    // 0: false
+    // 1: true
+    std::vector<int> _callbacks;
 
     std::mutex _mtx;
     std::mutex _stream_mtx;
@@ -99,12 +99,18 @@ class CoroflowV3 {
     std::atomic<size_t> _finished{0};
 };
 
-// cuda callback
+
+// ==========================================================================
+//
+// callback
+//
+// ==========================================================================
+
 void CUDART_CB _cuda_stream_callback_v3(cudaStream_t st, cudaError_t stat, void* void_args) {
   checkCudaError(stat);
 
   // unpack
-  auto* data = (cudaCallbackData*) void_args;
+  auto* data = (CoroflowV3::cudaCallbackData*) void_args;
   auto* cf = data->cf;
   auto* prom = data->prom;
   auto stream_id = data->stream_id;
@@ -114,7 +120,7 @@ void CUDART_CB _cuda_stream_callback_v3(cudaStream_t st, cudaError_t stat, void*
     --cf->_in_stream_tasks[stream_id];
   }
 
-  cf->_callbacks[prom->_id] = false;
+  cf->_callbacks[prom->_id] = 0;
   cf->_enqueue(cf->_tasks[prom->_id].get());
 }
 // ==========================================================================
@@ -138,7 +144,7 @@ auto CoroflowV3::cuda_suspend(C&& c) {
       // choose the best stream id
       size_t stream_id;
       {
-        std::scoped_lock(data.cf->_stream_mtx);
+        std::scoped_lock lock(data.cf->_stream_mtx);
         stream_id = std::distance(
           data.cf->_in_stream_tasks.begin(), 
           std::min_element(data.cf->_in_stream_tasks.begin(), data.cf->_in_stream_tasks.end())
@@ -149,12 +155,12 @@ auto CoroflowV3::cuda_suspend(C&& c) {
       // set callback data
       data.prom = &(coro_handle.promise());
       data.stream_id = stream_id;
-      data.cf->_callbacks[data.prom->_id] = true;
+      data.cf->_callbacks[data.prom->_id] = 1;
 
 
       // enqueue the kernel to the stream
       {
-        std::scoped_lock(data.cf->_kernel_mtx);
+        std::scoped_lock lock(data.cf->_kernel_mtx);
         kernel(data.cf->_streams[stream_id].st);
         cudaStreamAddCallback(data.cf->_streams[stream_id].st, _cuda_stream_callback_v3, (void*)&data, 0);
       }
@@ -247,7 +253,7 @@ TaskHandle CoroflowV3::emplace(C&& c) {
 
 void CoroflowV3::schedule() {
 
-  _callbacks.resize(_tasks.size(), false);
+  _callbacks.resize(_tasks.size(), 0);
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
@@ -323,7 +329,7 @@ void CoroflowV3::_invoke_coro_task(Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   if(!coro->done()) {
     coro->resume();
-    if(!_callbacks[coro->coro._coro_handle.promise()._id]) {
+    if(_callbacks[coro->coro._coro_handle.promise()._id] == 0) {
       _enqueue(tp);
     }
   }

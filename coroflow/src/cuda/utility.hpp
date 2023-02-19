@@ -13,3 +13,7 @@ cudaError_t checkCudaError(cudaError_t result)
   }
   return result;
 }
+
+template <typename C>
+constexpr bool is_cuda_task_v = 
+  std::is_invocable_r_v<void, C, cudaStream_t>;
