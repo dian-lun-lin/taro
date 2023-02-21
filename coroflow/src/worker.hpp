@@ -14,6 +14,8 @@ namespace cf { // begin of namespace cf ===================================
 class Worker {
 
   friend class CoroflowV4;
+  friend class CoroflowV5;
+  friend class CoroflowV6;
 
   public:
 

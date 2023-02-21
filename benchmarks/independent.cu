@@ -2,6 +2,8 @@
 #include <coroflow/src/cuda/coroflow_v2.hpp>
 #include <coroflow/src/cuda/coroflow_v3.hpp>
 #include <coroflow/src/cuda/coroflow_v4.hpp>
+#include <coroflow/src/cuda/coroflow_v5.hpp>
+#include <coroflow/src/cuda/coroflow_v6.hpp>
 #include <coroflow/src/cuda/algorithm.hpp>
 #include <vector>
 #include <algorithm>
@@ -263,15 +265,99 @@ void coro_v4(
   cf.wait();
   coro_toc = std::chrono::steady_clock::now();
   auto coro_dur = std::chrono::duration_cast<std::chrono::milliseconds>(coro_toc - coro_tic).count();
-  std::cout << "coroflow v3 time: " << coro_dur << "ms\n";
+  std::cout << "coroflow v4 time: " << coro_dur << "ms\n";
+}
+
+// M CPU threads, N GPU streams
+// work-stealing approach
+void coro_v5(
+  size_t num_threads, 
+  size_t num_streams, 
+  size_t num_tasks, 
+  size_t chain_size, 
+  int cpu_ms, 
+  int gpu_ms
+) {
+  std::chrono::time_point<std::chrono::steady_clock> coro_tic;
+  std::chrono::time_point<std::chrono::steady_clock> coro_toc;
+
+  cf::CoroflowV5 cf{num_threads, num_streams};
+  std::vector<cf::TaskHandle> tasks(num_tasks);
+
+  // emplace tasks
+  for(size_t c = 0; c < num_tasks; ++c) {
+      tasks[c] = cf.emplace([&cf, c, chain_size, cpu_ms, gpu_ms]() -> cf::Coro {
+        for(size_t i = 0; i < chain_size; i++) {
+          // cpu task
+          cpu_sleep(cpu_ms);
+
+          // gpu task
+          co_await cf.cuda_suspend([gpu_ms](cudaStream_t st) {
+            cuda_sleep<<<8, 32, 0, st>>>(gpu_ms);
+          });
+        }
+        co_return;
+      });
+  }
+
+  assert(cf.is_DAG());
+
+  coro_tic = std::chrono::steady_clock::now();
+  cf.schedule();
+  cf.wait();
+  coro_toc = std::chrono::steady_clock::now();
+  auto coro_dur = std::chrono::duration_cast<std::chrono::milliseconds>(coro_toc - coro_tic).count();
+  std::cout << "coroflow v5 time: " << coro_dur << "ms\n";
+}
+
+// M CPU threads, N GPU streams
+// work-stealing approach
+void coro_v6(
+  size_t num_threads, 
+  size_t num_streams, 
+  size_t num_tasks, 
+  size_t chain_size, 
+  int cpu_ms, 
+  int gpu_ms
+) {
+  std::chrono::time_point<std::chrono::steady_clock> coro_tic;
+  std::chrono::time_point<std::chrono::steady_clock> coro_toc;
+
+  cf::CoroflowV6 cf{num_threads, num_streams};
+  std::vector<cf::TaskHandle> tasks(num_tasks);
+
+  // emplace tasks
+  for(size_t c = 0; c < num_tasks; ++c) {
+      tasks[c] = cf.emplace([&cf, c, chain_size, cpu_ms, gpu_ms]() -> cf::Coro {
+        for(size_t i = 0; i < chain_size; i++) {
+          // cpu task
+          cpu_sleep(cpu_ms);
+
+          // gpu task
+          co_await cf.cuda_suspend([gpu_ms](cudaStream_t st) {
+            cuda_sleep<<<8, 32, 0, st>>>(gpu_ms);
+          });
+        }
+        co_return;
+      });
+  }
+
+  assert(cf.is_DAG());
+
+  coro_tic = std::chrono::steady_clock::now();
+  cf.schedule();
+  cf.wait();
+  coro_toc = std::chrono::steady_clock::now();
+  auto coro_dur = std::chrono::duration_cast<std::chrono::milliseconds>(coro_toc - coro_tic).count();
+  std::cout << "coroflow v6 time: " << coro_dur << "ms\n";
 }
 
 
 int main(int argc, char* argv[]) {
   if(argc != 8) {
     std::cerr << "usage: ./bin/independent mode num_threads num_streams num_tasks chain_size cpu_ms gpu_ms\n";
-    std::cerr << "mode should be 0, 1, 2, 3, or 4\n";
-    std::cerr << "0: function, 1: coroflow v1, 2: corflow v2, 3: corflow v3, 4: all \n";
+    std::cerr << "mode should be 0, 1, 2, 3, 4, 5, 6, or 7\n";
+    std::cerr << "0: function, 1: coroflow v1, 2: corflow v2, 3: corflow v3... 7: all \n";
     std::exit(EXIT_FAILURE);
   }
   size_t mode = std::atoi(argv[1]);
@@ -314,6 +400,14 @@ int main(int argc, char* argv[]) {
     coro_v4(num_threads, num_streams, num_tasks, chain_size, cpu_ms, gpu_ms);
   }
   else if(mode == 5) {
+    std::cout << "coroflow v5...\n";
+    coro_v5(num_threads, num_streams, num_tasks, chain_size, cpu_ms, gpu_ms);
+  }
+  else if(mode == 6) {
+    std::cout << "coroflow v6...\n";
+    coro_v6(num_threads, num_streams, num_tasks, chain_size, cpu_ms, gpu_ms);
+  }
+  else if(mode == 7) {
     std::cout << "all...\n\n";
     std::cout << "function...\n";
     std::cout << "igonre num_streams... each task has its own stream\n";
@@ -337,10 +431,16 @@ int main(int argc, char* argv[]) {
 
     std::cout << "coroflow v4...\n";
     coro_v4(num_threads, num_streams, num_tasks, chain_size, cpu_ms, gpu_ms);
+
+    std::cout << "coroflow v5...\n";
+    coro_v5(num_threads, num_streams, num_tasks, chain_size, cpu_ms, gpu_ms);
+
+    std::cout << "coroflow v6...\n";
+    coro_v6(num_threads, num_streams, num_tasks, chain_size, cpu_ms, gpu_ms);
   }
   else {
-    std::cerr << "mode should be 0, 1, 2, 3, or 4\n";
-    std::cerr << "0: function, 1: coroflow v1, 2: corflow v2, 3: corflow v3, 4: all \n";
+    std::cerr << "mode should be 0, 1, 2, 3, 4, 5, 6, or 7\n";
+    std::cerr << "0: function, 1: coroflow v1, 2: corflow v2, 3: corflow v3... 7: all \n";
     std::exit(EXIT_FAILURE);
   }
 

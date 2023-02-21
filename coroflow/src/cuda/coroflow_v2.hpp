@@ -63,7 +63,7 @@ class CoroflowV2 {
     std::vector<std::thread> _workers;
     std::vector<std::unique_ptr<Task>> _tasks;
     std::queue<Task*> _queue;
-    std::vector<bool> _callbacks;
+    std::vector<int> _callbacks;
 
     std::mutex _mtx;
     std::condition_variable _cv;
@@ -80,7 +80,7 @@ void CUDART_CB _cuda_stream_callback_v2(cudaStream_t st, cudaError_t stat, void*
   CoroflowV2* cf = data->first;
   Coro::promise_type* prom = data->second;
 
-  cf->_callbacks[prom->_id] = false;
+  cf->_callbacks[prom->_id] = 0;
   cf->_enqueue(cf->_tasks[prom->_id].get());
 }
 // ==========================================================================
@@ -98,7 +98,7 @@ auto CoroflowV2::cuda_suspend(cudaStream_t st) {
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
       _data.second = &(coro_handle.promise());
       CoroflowV2* cf = _data.first;
-      cf->_callbacks[coro_handle.promise()._id] = true;
+      cf->_callbacks[coro_handle.promise()._id] = 1;
       cudaStreamAddCallback(_st, _cuda_stream_callback_v2, (void*)&_data, 0);
     }
     
@@ -175,7 +175,7 @@ TaskHandle CoroflowV2::emplace(C&& c) {
 
 void CoroflowV2::schedule() {
 
-  _callbacks.resize(_tasks.size(), false);
+  _callbacks.resize(_tasks.size(), 0);
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
@@ -251,7 +251,7 @@ void CoroflowV2::_invoke_coro_task(Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   if(!coro->done()) {
     coro->resume();
-    if(!_callbacks[coro->coro._coro_handle.promise()._id]) {
+    if(_callbacks[coro->coro._coro_handle.promise()._id] == 0) {
       _enqueue(tp);
     }
   }

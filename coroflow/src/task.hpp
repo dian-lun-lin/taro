@@ -53,6 +53,8 @@ class Task {
   friend class CoroflowV2;
   friend class CoroflowV3;
   friend class CoroflowV4;
+  friend class CoroflowV5;
+  friend class CoroflowV6;
   friend class TaskHandle;
 
   struct CoroTask {

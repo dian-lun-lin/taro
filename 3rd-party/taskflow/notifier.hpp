@@ -65,6 +65,8 @@ namespace cf {
 class Notifier {
 
   friend class CoroflowV4;
+  friend class CoroflowV5;
+  friend class CoroflowV6;
 
   public:
 

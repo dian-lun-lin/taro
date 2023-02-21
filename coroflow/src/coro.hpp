@@ -15,6 +15,8 @@ struct Coro { // Coroutine needs to be struct
   friend class CoroflowV2;
   friend class CoroflowV3;
   friend class CoroflowV4;
+  friend class CoroflowV5;
+  friend class CoroflowV6;
   friend class Task;
 
   public:
@@ -22,10 +24,11 @@ struct Coro { // Coroutine needs to be struct
     struct promise_type {
 
       size_t _id;
+      bool _final{false};
       Coro get_return_object() { return Coro{this}; }
 
       std::suspend_always initial_suspend() noexcept { return {}; } // suspend a coroutine now and schedule it after
-      std::suspend_always final_suspend() noexcept { return {}; } // suspend to decrement dependencies for a task graph
+      std::suspend_always final_suspend() noexcept { _final = true; return {}; } // suspend to decrement dependencies for a task graph
                                                                   // otherwise we don't know whether a coroutine is finished
       void unhandled_exception() {}
       void return_void() noexcept {}

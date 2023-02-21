@@ -26,8 +26,6 @@ void CUDART_CB _cuda_stream_callback_v4(cudaStream_t st, cudaError_t stat, void*
   auto stream_id = data->stream_id;
 
 
-  cf->_callbacks[prom->_id] = false;
-  
   //auto* worker = cf->_this_worker();
   //if(worker) {
     //cf->_enqueue(&worker, cf->_tasks[prom->_id].get());

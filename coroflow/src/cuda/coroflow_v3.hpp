@@ -175,7 +175,7 @@ auto CoroflowV3::cuda_suspend(C&& c) {
 auto CoroflowV3::suspend() {  // value from co_await
   struct awaiter: public std::suspend_always { // definition of awaitable for co_await
     explicit awaiter() noexcept {}
-    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
+    void await_suspend(std::coroutine_handle<Coro::promise_type>) const noexcept {
       // TODO: add CPU callback?
     }
   };
