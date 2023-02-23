@@ -82,7 +82,7 @@ RandomDAG::RandomDAG(
     cur_num_nodes = next_num_nodes;
   }
 
-  allocate_nodes();
+  //allocate_nodes();
 }
 
 RandomDAG::~RandomDAG() {

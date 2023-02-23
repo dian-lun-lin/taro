@@ -11,17 +11,17 @@ struct Node {
     std::vector<size_t>& out_nodes
   );
 
-  inline void mark() { *visited = true; }
+  //inline void mark() { *visited = true; }
 
-  inline void unmark() { *visited = false; }
+  //inline void unmark() { *visited = false; }
 
-  inline bool is_visited() { return *visited; }
+  //inline bool is_visited() { return *visited; }
 
   inline void print_node(std::ostream& os);
 
   size_t level;
   size_t idx;
-  bool* visited{nullptr}; //allocated by cudaMallocManaged
+  //bool* visited{nullptr}; //allocated by cudaMallocManaged
 
   std::vector<size_t> out_nodes; 
 };
@@ -40,7 +40,7 @@ void Node::print_node(std::ostream& os) {
   for(auto&& node: out_nodes) {
     os << node << ' ';
   }
-  os << "\nStatus: " << *visited;
+  //os << "\nStatus: " << *visited;
   os << '\n';
 }
 
@@ -56,7 +56,7 @@ class Graph {
 
     virtual ~Graph() = 0;
 
-    bool traversed();
+    //bool traversed();
 
     void print_graph(std::ostream& os);
 
@@ -66,7 +66,7 @@ class Graph {
 
     inline size_t num_nodes() { return _num_nodes; }
 
-    void allocate_nodes();
+    //void allocate_nodes();
 
     void free_nodes();
 
@@ -85,16 +85,16 @@ class Graph {
 Graph::~Graph() {
 }
 
-bool Graph::traversed() {
-  for(auto&& nodes: _graph) {
-    for(auto&& node: nodes) {
-      if(!node.is_visited()) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
+//bool Graph::traversed() {
+  //for(auto&& nodes: _graph) {
+    //for(auto&& node: nodes) {
+      //if(!node.is_visited()) {
+        //return false;
+      //}
+    //}
+  //}
+  //return true;
+//}
 
 void Graph::print_graph(std::ostream& os) {
   size_t l{0};
@@ -106,18 +106,18 @@ void Graph::print_graph(std::ostream& os) {
   }
 }
 
-void Graph::allocate_nodes() {
-  cudaMallocManaged(&_visited_start, sizeof(bool) * _num_nodes);
-  std::memset(_visited_start, 0, sizeof(bool) * _num_nodes);
+//void Graph::allocate_nodes() {
+  //cudaMallocManaged(&_visited_start, sizeof(bool) * _num_nodes);
+  //std::memset(_visited_start, 0, sizeof(bool) * _num_nodes);
 
-  bool* v = _visited_start;
+  //bool* v = _visited_start;
 
-  for(size_t l = 0; l < _level; ++l) {
-    for(size_t i = 0; i < _graph[l].size(); ++i) {
-      _graph[l][i].visited =  v++;
-    }
-  }
-}
+  //for(size_t l = 0; l < _level; ++l) {
+    //for(size_t i = 0; i < _graph[l].size(); ++i) {
+      //_graph[l][i].visited =  v++;
+    //}
+  //}
+//}
 
 void Graph::free_nodes() {
   cudaFree(_visited_start);

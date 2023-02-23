@@ -55,7 +55,7 @@ _num_iterations{num_iterations}
   }
 
   _num_nodes = 1 + 4 * (num_iterations);
-  allocate_nodes();
+  //allocate_nodes();
 }
 
 Diamond::~Diamond() {

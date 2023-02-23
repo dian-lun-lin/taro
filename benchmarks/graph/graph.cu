@@ -23,6 +23,13 @@ int main(int argc, char* argv[]) {
     "select version(1, 2, 3, ..., 6), default is 6"
   );
 
+  size_t N{1024};
+  app.add_option(
+    "-n, --matrix_size", 
+    N, 
+    "set matrix size NxN"
+  );
+
   std::vector<int> args;
   app.add_option(
     "-a, --args",
@@ -88,25 +95,25 @@ int main(int argc, char* argv[]) {
     case 3:
       {
         GraphExecutor<cf::CoroflowV3> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run();
+        time_pair = executor.run_matmul(N);
       }
       break;
     case 4:
       {
         GraphExecutor<cf::CoroflowV4> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run();
+        time_pair = executor.run_matmul(N);
       }
       break;
     case 5:
       {
         GraphExecutor<cf::CoroflowV5> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run();
+        time_pair = executor.run_matmul(N);
       }
       break;
     case 6:
       {
         GraphExecutor<cf::CoroflowV6> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run();
+        time_pair = executor.run_matmul(N);
       }
       break;
   }

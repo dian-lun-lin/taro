@@ -34,7 +34,7 @@ SerialGraph::SerialGraph(int num_nodes):
     _graph[l].emplace_back(l, 0, out_nodes);
   }
 
-  allocate_nodes();
+  //allocate_nodes();
 }
 
 SerialGraph::~SerialGraph() {

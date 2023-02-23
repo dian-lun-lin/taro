@@ -44,7 +44,7 @@ Tree::Tree(int degree, int level): _degree{degree}, Graph{level}
     _num_nodes += cur_level_num_nodes;
   }
 
-  allocate_nodes();
+  //allocate_nodes();
 
 }
 

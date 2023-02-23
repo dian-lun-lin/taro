@@ -20,7 +20,7 @@ class GraphExecutor {
   
     GraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams);
 
-    std::pair<double, double> run();
+    std::pair<double, double> run_matmul(size_t N);
 
   private:
     
@@ -39,16 +39,15 @@ GraphExecutor<CF>::GraphExecutor(Graph& graph, int dev_id, size_t num_threads, s
 }
 
 template <typename CF>
-std::pair<double, double> GraphExecutor<CF>::run() {
+std::pair<double, double> GraphExecutor<CF>::run_matmul(size_t N) {
 
   auto constr_tic = std::chrono::steady_clock::now();
 
   CF cf{_num_threads, _num_streams};
 
-  size_t N{4096};
   size_t cnt{0};
 
-  size_t BLOCK_SIZE{256};
+  size_t BLOCK_SIZE{128};
   dim3 dim_grid((N - 1) / BLOCK_SIZE + 1, (N - 1) / BLOCK_SIZE + 1, 1);
   dim3 dim_block(BLOCK_SIZE, BLOCK_SIZE, 1);
 
@@ -126,17 +125,16 @@ std::pair<double, double> GraphExecutor<CF>::run() {
           cf::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(d_a[cnt], d_b[cnt], d_res[cnt], N, N, N);
           // D2H
           cudaMemcpyAsync(h_res[cnt].data(), d_res[cnt], N * N * sizeof(int), cudaMemcpyDeviceToHost, st);
-
+          // free
           cudaFreeAsync(d_a[cnt], st);
           cudaFreeAsync(d_b[cnt], st);
           cudaFreeAsync(d_res[cnt], st);
-  
         });
 
         // CPU work
         h_res[cnt].clear();
-        bool* v = _g.at(l, i).visited;
-        *v = true;
+        //bool* v = _g.at(l, i).visited;
+        //*v = true;
 
       });
 

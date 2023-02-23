@@ -37,7 +37,7 @@ ParallelGraph::ParallelGraph(int num_nodes):
     _graph[0].emplace_back(0, k, empty_out_node);
   }
 
-  allocate_nodes();
+  //allocate_nodes();
 }
 
 ParallelGraph::~ParallelGraph() {
