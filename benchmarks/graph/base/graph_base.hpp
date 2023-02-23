@@ -1,7 +1,5 @@
 #pragma once
 
-#include <taskflow/cudaflow.hpp>
-
 //-------------------------------------------------------------------------
 //Node
 //-------------------------------------------------------------------------
@@ -66,6 +64,8 @@ class Graph {
 
     const std::vector<std::vector<Node>>& get_graph() { return _graph; };
 
+    inline size_t num_nodes() { return _num_nodes; }
+
     void allocate_nodes();
 
     void free_nodes();
@@ -79,6 +79,7 @@ class Graph {
     int _level;
 
     size_t _num_nodes{0};
+
 };
 
 Graph::~Graph() {

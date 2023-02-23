@@ -1,7 +1,6 @@
 #pragma once
 
-#include <simple_graph/base/graph_base.hpp>
-#include <taskflow/cudaflow.hpp>
+#include "../base/graph_base.hpp"
 #include <vector>
 #include <chrono>
 

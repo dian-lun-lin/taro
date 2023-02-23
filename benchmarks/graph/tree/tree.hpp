@@ -1,6 +1,6 @@
 #pragma once
 
-#include <simple_graph/base/graph_base.hpp>
+#include "../base/graph_base.hpp"
 #include <vector>
 #include <cassert>
 #include <cmath>

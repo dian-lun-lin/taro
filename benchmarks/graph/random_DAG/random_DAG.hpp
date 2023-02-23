@@ -1,10 +1,6 @@
 #pragma once
 
-#include <simple_graph/base/graph_base.hpp>
-#include <random>
-#include <algorithm>
-#include <vector>
-#include <cstring>
+#include "../base/graph_base.hpp"
 
 //-------------------------------------------------------------------------
 //RandomDAG
@@ -20,9 +16,8 @@ class RandomDAG: public Graph {
 
     ~RandomDAG();
 
-    inline size_t num_nodes() { return _num_nodes; }
 
-    void draw_task_graph(tf::Taskflow& taskflow, int dev_id);
+    //void draw_task_graph(cf::CoroflowV6& coroflow, int dev_id);
 
     //inline void print_graph(std::ostream& os);
 

@@ -323,7 +323,7 @@ void coro_v6(
   std::chrono::time_point<std::chrono::steady_clock> coro_tic;
   std::chrono::time_point<std::chrono::steady_clock> coro_toc;
 
-  cf::CoroflowV6 cf{num_threads, num_streams};
+  cf::CoroflowV5 cf{num_threads, num_streams};
   std::vector<cf::TaskHandle> tasks(num_tasks);
 
   // emplace tasks
