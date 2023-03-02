@@ -1,5 +1,7 @@
-# taro
-Taro is a ***T***ask-based ***A***synchronous programming system using C++ co***RO***utine.
+# Taro
+***T***ask-based ***A***synchronous programming system using C++ co***RO***utine.
+
+Taro is a task-based asynchronous programming system that leverages C++ coroutines to achieve high-performance CPU-GPU computing. Taro employs a work-stealing algorithm that dynamically redistributes tasks between threads, avoiding the overhead of thread management and enabling concurrent task execution. By using coroutines, Taro enables the CPU to continue executing other tasks while waiting for the GPU to complete its work, thus avoiding blocking and improving overall performance. 
 
 
 # Example
@@ -30,7 +32,7 @@ int main() {
     });
   });
   
-  // matrix multiplication
+  // matrix multiplication and D2H
   auto task_c = taro.emplace([&h_c, &d_c, N]() -> taro::Coro {
     size BLOCK_SIZE{128};
     dim3 dim_grid((N - 1) / BLOCK_SIZE + 1, (N - 1) / BLOCK_SIZE + 1, 1);
