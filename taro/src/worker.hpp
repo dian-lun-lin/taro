@@ -10,25 +10,29 @@ class cudaWorker {
   friend class Worker;
   friend class TaroV7;
 
-  cudaStream_t st;
+  cudaStream_t stream;
   Task* cur_task;
+  // -1: busy
+  // 0: (busy -> available) => need to commit
+  // 1:  available
+  int status{1};
 
   public:
 
     cudaWorker(): cur_task{nullptr} {
       //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
-      cudaStreamCreate(&st);
+      cudaStreamCreate(&stream);
     }
 
     ~cudaWorker() {
-      cudaStreamSynchronize(st);
-      cudaStreamDestroy(st);
+      cudaStreamSynchronize(stream);
+      cudaStreamDestroy(stream);
     }
 
-    cudaWorker(const cudaWorker&) = default;
-    cudaWorker(cudaWorker&&) = default;
-    cudaWorker& operator = (cudaWorker&&) = default;
-    cudaWorker& operator = (const cudaWorker&) = default;
+    //cudaWorker(const cudaWorker&) = delete;
+    //cudaWorker(cudaWorker&&) = delete;
+    //cudaWorker& operator = (cudaWorker&&) = delete;
+    //cudaWorker& operator = (const cudaWorker&) = delete;
 };
 
 // ==========================================================================
@@ -50,7 +54,7 @@ class Worker {
   private:
 
     WorkStealingQueue<Task*> _que;
-    WorkStealingQueue<std::function<void(cudaWorker&)>*> _gque;
+    //WorkStealingQueue<std::function<void(cudaWorker&)>*> _gque;
 
     std::vector<cudaWorker> _gws;
 

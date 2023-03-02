@@ -15,5 +15,10 @@ cudaError_t checkCudaError(cudaError_t result)
 }
 
 template <typename C>
-constexpr bool is_cuda_task_v = 
+constexpr bool is_kernel_v = 
   std::is_invocable_r_v<void, C, cudaStream_t>;
+
+class cudaWorker;
+template <typename C>
+constexpr bool is_cuda_task_v = 
+  std::is_invocable_r_v<void, C, cudaWorker>;

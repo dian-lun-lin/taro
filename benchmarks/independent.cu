@@ -56,7 +56,7 @@ void func(
   std::vector<cudaStream_t> streams(num_tasks);
   for(size_t i = 0; i < num_tasks; ++i) {
     cudaStreamCreate(&streams[i]);
-    cudaEventCreate(&events[i]);
+    cudaEventCreateWithFlags(&events[i], cudaEventDisableTiming);
   }
 
   // emplace tasks
@@ -69,7 +69,7 @@ void func(
 
         // gpu task
         cuda_sleep<<<8, 32, 0, streams[t]>>>(gpu_ms);
-        cudaEventRecord(events[t]);
+        cudaEventRecord(events[t], streams[t]);
         cudaEventSynchronize(events[t]);
       }
     });
@@ -107,7 +107,7 @@ void taro_v1(
   std::vector<cudaEvent_t> events(num_tasks);
   for(size_t i = 0; i < num_tasks; ++i) {
     cudaStreamCreate(&streams[i]);
-    cudaEventCreate(&events[i]);
+    cudaEventCreateWithFlags(&events[i], cudaEventDisableTiming);
   }
 
   // emplace tasks
@@ -119,7 +119,7 @@ void taro_v1(
 
           // gpu task
           cuda_sleep<<<8, 32, 0, streams[c]>>>(gpu_ms);
-          cudaEventRecord(events[i]);
+          cudaEventRecord(events[i], streams[c]);
           auto isdone = [&events, i]() { return cudaEventQuery(events[i]) == cudaSuccess;  };
           while(!isdone()) {
             co_await taro.suspend();
@@ -390,7 +390,7 @@ void taro_v7(
   taro.wait();
   taro_toc = std::chrono::steady_clock::now();
   auto taro_dur = std::chrono::duration_cast<std::chrono::milliseconds>(taro_toc - taro_tic).count();
-  std::cout << "taro v6 time: " << taro_dur << "ms\n";
+  std::cout << "taro v7 time: " << taro_dur << "ms\n";
 }
 
 

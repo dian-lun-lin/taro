@@ -10,6 +10,7 @@ namespace taro { // begin of namespace taro ===================================
 //
 // ==========================================================================
 
+class cudaWorker;
 
 template <typename C>
 constexpr bool is_static_task_v = 
@@ -80,9 +81,18 @@ class Task {
     std::function<void()> work;
   };
 
+  struct cudaTask {
+    template <typename C>
+    cudaTask(C&&);
+
+    std::function<void(cudaWorker&)> work;
+  };
+
   using handle_t = std::variant<
+    std::monostate,
     CoroTask,
-    StaticTask
+    StaticTask,
+    cudaTask
   >;
 
   public:
@@ -90,8 +100,24 @@ class Task {
     template <typename... Args>
     Task(size_t id, Args&&... args);
 
+
+    Task() = default;
+    ~Task() = default;
+
+    // move construtor is for cudaTask
+    // see cuda_suspend() in taro_v7
+    // TODO: there must be a better implementation
+    Task(Task&& rhs):_handle{std::move(rhs._handle)} {}
+    Task& operator=(Task&& rhs) { _handle = std::move(rhs._handle);  return *this; }
+
+    // coroutine should not be copied
+    Task(const Task&) = delete;
+    Task& operator=(const Task&) = delete;
+
+    constexpr static auto PLACEHOLDER   = get_index_v<std::monostate, handle_t>;
     constexpr static auto COROTASK   = get_index_v<CoroTask, handle_t>;
     constexpr static auto STATICTASK = get_index_v<StaticTask, handle_t>;
+    constexpr static auto CUDATASK = get_index_v<cudaTask, handle_t>;
 
   private:
 
@@ -112,6 +138,11 @@ template <typename C>
 Task::CoroTask::CoroTask(C&& c): 
   work{std::forward<C>(c)}, coro{work()}
 {
+}
+
+template <typename C>
+Task::cudaTask::cudaTask(C&& c): 
+  work{std::forward<C>(c)} {
 }
 
 // ==========================================================================

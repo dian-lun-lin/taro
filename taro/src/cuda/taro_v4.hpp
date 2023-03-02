@@ -55,7 +55,7 @@ class TaroV4 {
 
     auto suspend();
 
-    template <typename C, std::enable_if_t<is_cuda_task_v<C>, void>* = nullptr>
+    template <typename C, std::enable_if_t<is_kernel_v<C>, void>* = nullptr>
     auto cuda_suspend(C&&);
 
     void schedule();
@@ -294,7 +294,7 @@ void TaroV4::schedule() {
   _notifier.notify(srcs.size());
 }
 
-template <typename C, std::enable_if_t<is_cuda_task_v<C>, void>*>
+template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
 auto TaroV4::cuda_suspend(C&& c) {
 
   struct awaiter: std::suspend_always {

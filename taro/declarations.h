@@ -11,6 +11,7 @@
 #include <queue>
 #include <stack>
 #include <type_traits>
+#include <cassert>
 #include <variant>
 #include <taskflow/wsq.hpp>
 #include <random>

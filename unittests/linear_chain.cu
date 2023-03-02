@@ -6,6 +6,7 @@
 #include <taro/src/cuda/taro_v4.hpp>
 #include <taro/src/cuda/taro_v5.hpp>
 #include <taro/src/cuda/taro_v6.hpp>
+#include <taro/src/cuda/taro_v7.hpp>
 #include <taro/src/cuda/algorithm.hpp>
 #include <vector>
 #include <algorithm>
@@ -401,4 +402,64 @@ TEST_CASE("linear_chain_v6.7thread.1stream" * doctest::timeout(300)) {
 
 TEST_CASE("linear_chain_v6.8threads" * doctest::timeout(300)) {
   linear_chain_v6(9211, 8, 9);
+}
+
+void linear_chain_v7(size_t num_tasks, size_t num_threads, size_t num_streams) {
+  int* counter;
+  cudaMallocManaged(&counter, sizeof(int));
+
+  taro::TaroV7 taro{num_threads, num_streams};
+  std::vector<taro::TaskHandle> _tasks(num_tasks);
+
+  for(size_t t = 0; t < num_tasks; ++t) {
+    _tasks[t] = taro.emplace([t, counter, &taro]() -> taro::Coro {
+      REQUIRE(*counter == t); 
+
+      co_await taro.cuda_suspend([counter](cudaStream_t st) {
+        count<<<8, 32, 0, st>>>(counter);
+      });
+
+      REQUIRE(*counter == t + 1); 
+    });
+  }
+
+  for(size_t t = 0; t < num_tasks - 1; ++t) {
+    _tasks[t].succeed(_tasks[t + 1]);
+  }
+
+  REQUIRE(taro.is_DAG());
+  taro.schedule();
+  taro.wait(); 
+}
+
+TEST_CASE("linear_chain_v7.1thread.1stream" * doctest::timeout(300)) {
+  linear_chain_v7(1, 1, 1);
+}
+
+TEST_CASE("linear_chain_v7.2thread.2stream" * doctest::timeout(300)) {
+  linear_chain_v7(99, 2, 2);
+}
+
+TEST_CASE("linear_chain_v7.3thread.4stream" * doctest::timeout(300)) {
+  linear_chain_v7(712, 3, 4);
+}
+
+TEST_CASE("linear_chain_v7.4thread.8stream" * doctest::timeout(300)) {
+  linear_chain_v7(443, 4, 8);
+}
+
+TEST_CASE("linear_chain_v7.5thread.2stream" * doctest::timeout(300)) {
+  linear_chain_v7(1111, 5, 2);
+}
+
+TEST_CASE("linear_chain_v7.6thread.3stream" * doctest::timeout(300)) {
+  linear_chain_v7(2, 6, 3);
+}
+
+TEST_CASE("linear_chain_v7.7thread.1stream" * doctest::timeout(300)) {
+  linear_chain_v7(5, 7, 1);
+}
+
+TEST_CASE("linear_chain_v7.8threads" * doctest::timeout(300)) {
+  linear_chain_v7(9211, 8, 9);
 }

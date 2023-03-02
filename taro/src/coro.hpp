@@ -35,9 +35,13 @@ struct Coro { // Coroutine needs to be struct
       void return_void() noexcept {}
     };
 
+    // coroutine should not be copied
     explicit Coro(promise_type* p);
-    Coro(Coro&& rhs);
     ~Coro();
+    Coro(const Coro&) = delete;
+    Coro(Coro&& rhs);
+    Coro& operator=(const Coro&&) = delete;
+    Coro& operator=(Coro&& rhs);
 
   private:
 
@@ -57,6 +61,11 @@ Coro::Coro(promise_type* p): _coro_handle{std::coroutine_handle<promise_type>::f
 }
 
 Coro::Coro(Coro&& rhs): _coro_handle{std::exchange(rhs._coro_handle, nullptr)} {
+}
+
+Coro& Coro::operator=(Coro&& rhs) {
+  _coro_handle = std::exchange(rhs._coro_handle, nullptr);
+  return *this;
 }
 
 Coro::~Coro() { 

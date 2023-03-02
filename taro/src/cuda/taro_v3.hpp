@@ -53,7 +53,7 @@ class TaroV3 {
 
     auto suspend();
 
-    template <typename C, std::enable_if_t<is_cuda_task_v<C>, void>* = nullptr>
+    template <typename C, std::enable_if_t<is_kernel_v<C>, void>* = nullptr>
     auto cuda_suspend(C&&);
 
     void schedule();
@@ -129,7 +129,7 @@ void CUDART_CB _cuda_stream_callback_v3(cudaStream_t st, cudaError_t stat, void*
 //
 // ==========================================================================
 
-template <typename C, std::enable_if_t<is_cuda_task_v<C>, void>*>
+template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
 auto TaroV3::cuda_suspend(C&& c) {
 
   struct awaiter: std::suspend_always {
