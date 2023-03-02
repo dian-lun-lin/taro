@@ -61,6 +61,8 @@ int main() {
   task_a.precede(task_c);
   task_b.precede(task_c);
   task_c.precede(task_d);
-
+  
+  taro.schedule();
+  taro.wait();
 }
 ```
