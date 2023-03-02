@@ -26,7 +26,7 @@
 // Public License v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-namespace cf {
+namespace taro { // begin of namespace taro =====================================================
 
 // Notifier allows to wait for arbitrary predicates in non-blocking
 // algorithms. Think of condition variable, but wait predicate does not need to
@@ -64,9 +64,10 @@ namespace cf {
 // other changes, which would lead to deadlock.
 class Notifier {
 
-  friend class CoroflowV4;
-  friend class CoroflowV5;
-  friend class CoroflowV6;
+  friend class TaroV4;
+  friend class TaroV5;
+  friend class TaroV6;
+  friend class TaroV7;
 
   public:
 
@@ -264,4 +265,4 @@ class Notifier {
 };
 
 
-}  // namespace cf ===========================================================
+}  // end of namespace taro ===========================================================

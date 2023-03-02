@@ -16,9 +16,8 @@
 #include <random>
 
 
-namespace cf { // begin of namespace cf ===================================
+namespace taro { // begin of namespace taro ===================================
 
-  class Coroflow;
   class Coro;
   class Task;
   class TaskHandle;
@@ -29,4 +28,4 @@ namespace cf { // begin of namespace cf ===================================
   //};
 
 
-} // end of namespace cf ==============================================
+} // end of namespace taro ==============================================

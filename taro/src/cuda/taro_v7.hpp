@@ -8,12 +8,14 @@
 #include "../../../3rd-party/taskflow/notifier.hpp"
 #include "../../../3rd-party/taskflow/wsq.hpp"
 
-namespace cf { // begin of namespace cf ===================================
+namespace taro { // begin of namespace taro ===================================
 
-class CoroflowV6;
+class TaroV7;
   
-// cudaStreamAddcallback
-// cudaStream is handled by Coroflow
+// cudaEvent SHOULD USE cudaDisableTiming to enable best performance
+// cudaEventRecord SHOULD SPECIFY STREAM
+//
+// cudaStream is handled by Taro
 // work-stealing approach
 // As suggested by CUDA doc, we use cudaLaunchHostFunc rather than cudaStreamAddCallback
 // TODO: maybe embed CUDA GRAPH? (CUDA graph capturer)
@@ -22,35 +24,20 @@ class CoroflowV6;
 //
 // ==========================================================================
 //
-// Declaration of class CoroflowV6
+// Declaration of class TaroV7
 //
 // ==========================================================================
 //
 
 
-class CoroflowV6 {
-
-  //friend void CUDART_CB _cuda_stream_callback_v6(cudaStream_t st, cudaError_t stat, void* void_args);
-  friend void CUDART_CB _cuda_stream_callback_v6(void* void_args);
-
-  struct cudaStream {
-    cudaStream_t st;
-    size_t id;
-  };
-
-  struct cudaCallbackData {
-    CoroflowV6* cf;
-    Coro::promise_type* prom;
-    size_t stream_id;
-    //size_t num_kernels;
-  };
+class TaroV7 {
 
 
   public:
 
-    CoroflowV6(size_t num_threads, size_t num_streams);
+    TaroV7(size_t num_threads, size_t num_streams);
 
-    ~CoroflowV6();
+    ~TaroV7();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -84,12 +71,14 @@ class CoroflowV6 {
 
     Worker* _this_worker();
 
+    cudaWorker* _cuda_find_available_worker(Worker& worker);
+    //void _cuda_assign_task(Worker& worker, cudaWorker* gw);
+    void _cuda_exploit_task(Worker& worker, cudaWorker& gw, bool& assigned);
+    void _cuda_explore_task(Worker& worker, cudaWorker& gw, bool& assigned);
+
     void _exploit_task(Worker& worker);
     Task* _explore_task(Worker& worker);
     bool _wait_for_task(Worker& worker);
-
-    void _notify_gstop(bool cond);
-
 
     bool _is_DAG(
       Task* tp,
@@ -97,83 +86,55 @@ class CoroflowV6 {
       std::vector<bool>& in_recursion
     ) const;
 
+    size_t _num_streams;
     std::vector<std::thread> _threads;
     std::vector<Worker> _workers;
-    std::vector<cudaStream> _streams;
     std::vector<std::unique_ptr<Task>> _tasks;
     std::unordered_map<std::thread::id, size_t> _wids;
 
     WorkStealingQueue<Task*> _que;
-    std::queue<std::function<void(size_t)>> _gque;
     std::vector<bool> _stream_stat;
 
     std::mutex _qmtx;
     std::mutex _wmtx;
-    std::mutex _gmtx;
     std::condition_variable _wcv;
-    std::condition_variable _gcv;
 
     Notifier _notifier;
     std::atomic<bool> _stop{false};
-    std::atomic<bool> _gstop{false};
     std::atomic<size_t> _finished{0};
     size_t _MAX_STEALS;
+    size_t _CUDA_MAX_STEALS;
 };
 
 // ==========================================================================
 //
-// callback
+// Definition of class TaroV7
 //
 // ==========================================================================
 
-// cuda callback
-void CUDART_CB _cuda_stream_callback_v6(void* void_args) {
+TaroV7::TaroV7(size_t num_threads, size_t num_streams): 
+  _workers{num_threads}, _notifier{num_threads}, 
+  _MAX_STEALS{(num_threads + 1) << 1}, _CUDA_MAX_STEALS{(num_threads + 1) << 1}, 
+  _num_streams{num_streams} 
+{
 
-  // unpack
-  auto* data = (CoroflowV6::cudaCallbackData*) void_args;
-  auto* cf = data->cf;
-  auto* prom = data->prom;
-  auto stream_id = data->stream_id;
-
-  cf->_enqueue(cf->_tasks[prom->_id].get());
-  cf->_notifier.notify(false);
-  {
-    std::scoped_lock(cf->_gmtx);
-    cf->_stream_stat[stream_id] = true;
-  }
-  cf->_gcv.notify_one();
-}
-
-// ==========================================================================
-//
-// Definition of class CoroflowV6
-//
-// ==========================================================================
-
-CoroflowV6::CoroflowV6(size_t num_threads, size_t num_streams): 
-  _workers{num_threads}, _notifier{num_threads}, _MAX_STEALS{(num_threads + 1) << 1} {
-
-  //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
-
-  // GPU streams
-  _stream_stat.resize(num_streams, true);
-  _streams.reserve(num_streams);
-  for(size_t i = 0; i < num_streams; ++i) {
-    _streams[i].id = i;
-    cudaStreamCreate(&(_streams[i].st));
-  }
 
   // CPU threads
   _threads.reserve(num_threads);
   size_t cnt{0};
   for(size_t id = 0; id < num_threads; ++id) {
-    _threads.emplace_back([this, id, num_threads, &cnt]() {
+    _threads.emplace_back([this, id, num_threads, num_streams, &cnt]() {
 
       auto& worker = _workers[id];
       worker._id = id;
       worker._vtm = id;
       worker._thread = &_threads[id];
       worker._waiter = &_notifier._waiters[id];
+
+      // evenly distribute cuda workers to workers
+      for(size_t s = id; s < num_streams; s += num_threads) {
+        worker._gws.emplace_back();
+      }
 
       {
         std::scoped_lock lock(_wmtx);
@@ -188,7 +149,6 @@ CoroflowV6::CoroflowV6(size_t num_threads, size_t num_streams):
       // can we not enter into scheduling loop until we call schedule?
       while(1) {
         _exploit_task(worker);
-
         if(!_wait_for_task(worker)) {
           break;
         }
@@ -197,46 +157,19 @@ CoroflowV6::CoroflowV6(size_t num_threads, size_t num_streams):
 
   }
 
-  // one CPU thread to manage GPU tasks
-  _threads.emplace_back([this]() {
-    while(true) {
-      std::function<void(size_t)> t;
-      size_t id;
-
-      {
-        auto it = _stream_stat.end();
-        std::unique_lock<std::mutex> lock(_gmtx);
-        _gcv.wait(lock, [this, &it]() { 
-          it = std::find_if(_stream_stat.begin(), _stream_stat.end(), [](bool a){ return a; });
-          return _gstop || 
-            ( it != _stream_stat.end() && !_gque.empty());
-        });
-
-        if(_gstop) { return; }
-
-        id = std::distance(_stream_stat.begin(), it);
-        _stream_stat[id] = false;
-        t = _gque.front();
-        _gque.pop();
-      }
-
-      t(id);
-    }
-  });
-
   std::unique_lock<std::mutex> lock(_wmtx);
   _wcv.wait(lock, [&](){ return cnt == num_threads; });
 }
 
 // get a task from worker's own queue
-void CoroflowV6::_exploit_task(Worker& worker) {
+void TaroV7::_exploit_task(Worker& worker) {
   while(auto task = worker._que.pop()) {
     _process(worker, task.value());
   }
 }
 
 // try to steal
-Task* CoroflowV6::_explore_task(Worker& worker) {
+Task* TaroV7::_explore_task(Worker& worker) {
 
   size_t num_steals{0};
   size_t num_yields{0};
@@ -265,9 +198,27 @@ Task* CoroflowV6::_explore_task(Worker& worker) {
   return task;
 }
 
-bool CoroflowV6::_wait_for_task(Worker& worker) {
+bool TaroV7::_wait_for_task(Worker& worker) {
 
   Task* task{nullptr};
+  bool assigned{false};
+
+  cuda_assign_task:
+    size_t num_finds{0};
+    while(num_finds++ < _num_streams) {
+      auto gw = _cuda_find_available_worker(worker); 
+      // if there is an available cudaWorker
+      // try to find a cuda task
+      _cuda_exploit_task(worker, *gw, assigned);
+      _cuda_explore_task(worker, *gw, assigned);
+    }
+
+  // if we assign a cuda task to a cudaWorker, it's very likely the local queue is enqueued
+  if(assigned) {
+    return true;
+  }
+    
+
   explore_task:
     task = _explore_task(worker);
 
@@ -290,7 +241,6 @@ bool CoroflowV6::_wait_for_task(Worker& worker) {
   if(_stop) {
     _notifier.cancel_wait(worker._waiter);
     _notifier.notify(true);
-    _notify_gstop(true);
     return false;
   }
 
@@ -303,28 +253,33 @@ bool CoroflowV6::_wait_for_task(Worker& worker) {
     }
   }
 
+  //  
+  if(_cuda_all_avalaible()) {
+    for(size_t vtm = 0; vtm < _workers.size(); ++vtm) {
+      if(!_workers[vtm]._que.empty()) {
+        _notifier.cancel_wait(worker._waiter);
+        worker._vtm = vtm;
+        goto explore_task;
+      }
+    }
+  }
+
   _notifier.commit_wait(worker._waiter);
 
-  goto explore_task;
+  goto cuda_assign_task;
 }
 
 
-CoroflowV6::~CoroflowV6() {
-  for(auto& st: _streams) {
-    cudaStreamDestroy(st.st);
-  }
+TaroV7::~TaroV7() {
 }
 
-void CoroflowV6::wait() {
-  for(auto& st: _streams) {
-    checkCudaError(cudaStreamSynchronize(st.st));
-  }
+void TaroV7::wait() {
   for(auto& t: _threads) {
     t.join();
   }
 }
 
-void CoroflowV6::schedule() {
+void TaroV7::schedule() {
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
@@ -338,41 +293,108 @@ void CoroflowV6::schedule() {
 }
 
 template <typename C, std::enable_if_t<is_cuda_task_v<C>, void>*>
-auto CoroflowV6::cuda_suspend(C&& c) {
+auto TaroV7::cuda_suspend(C&& c) {
 
   struct awaiter: std::suspend_always {
     std::function<void(cudaStream_t)> kernel;
-    cudaCallbackData data;
+    // TODO: WorkStealingQueue<T> uses std::atomic<T>, which requries triviallyCopyable type
+    // We need to store cuda task here and pass the pointer to queue
+    std::function<void(cudaWorker&)> cuda_task; 
+    TaroV7& cf;
 
-    explicit awaiter(CoroflowV6* cf, C&& c): kernel{std::forward<C>(c)} {
-      data.cf = cf;
-    }
+    explicit awaiter(TaroV7* cf, C&& c): cf{*cf}, kernel{std::forward<C>(c)} {}
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
+      cuda_task = [coro_handle, this](cudaWorker& gw) {
+        // update cur_task
+        // TODO: do we need to handle final cur_task?
+        // TODO: Does decentralized WorkStealingQueue help?
+        auto id = coro_handle.promise()._id;
+        gw.cur_task = cf._tasks[id].get();
+        kernel(gw.st);
+      };
 
-      {
-        std::scoped_lock<std::mutex> lock(data.cf->_gmtx);
-        data.cf->_gque.push([coro_handle, this](size_t stream_id) {
-          data.prom = &(coro_handle.promise());
-          data.stream_id = stream_id;
-
-          // only one CPU thread will pop the gque, no need of kernel_mtx
-          kernel(data.cf->_streams[stream_id].st);
-          cudaLaunchHostFunc(data.cf->_streams[stream_id].st, _cuda_stream_callback_v6, (void*)&data);
-        });
-      }
-      data.cf->_gcv.notify_one();
-
+      cf._this_worker()->_gque.push(&cuda_task);
+      cf._notifier.notify(false);
     }
-    
   };
-
   return awaiter{this, std::forward<C>(c)};
 }
 
-auto CoroflowV6::suspend() {
+
+
+// find an available cudaWorker
+cudaWorker* TaroV7::_cuda_find_available_worker(Worker& worker) {
+  //auto git = std::find_if(
+    //worker._gws.begin(), worker._gws.end(), 
+    //[](const cudaWorker& gw) { return cudaStreamQuery(gw.st) == cudaSuccess; }
+  //);
+  std::cerr << "find cuda worker\n";
+
+  cudaWorker* choose{nullptr};
+  for(auto& gw: worker._gws) {
+    if(cudaStreamQuery(gw.st) == cudaSuccess)  {
+      if(gw.cur_task != nullptr) {
+        // previous coro finished, we need to enqueue the coro back
+        _enqueue(worker, gw.cur_task);
+        gw.cur_task = nullptr;
+        _notifier.notify(false);
+      }
+      choose = &gw;
+    }
+  }
+  return choose;
+}
+
+//void TaroV7::_cuda_update(Worker& worker) {
+//}
+
+void TaroV7::_cuda_exploit_task(Worker& worker, cudaWorker& gw, bool& assigned) {
+  std::cerr << "cuda exploit\n";
+  if(!assigned) {
+    if(!worker._gque.empty()) {
+      // exploit
+      // get a new cuda task from queue
+      auto opt = worker._gque.pop();
+      auto cuda_task = *(opt.value());
+      
+      cuda_task(gw);
+      assigned = true;
+    }
+  }
+}
+
+// try to steal from other workers
+void TaroV7::_cuda_explore_task(Worker& worker, cudaWorker& gw, bool& assigned) {
+  std::cerr << "cuda explore\n";
+  if(!assigned) {
+    size_t num_steals{0};
+    size_t num_yields{0};
+    std::uniform_int_distribution<size_t> rdvtm(0, _workers.size() - 1);
+    while(true) {
+      size_t vtm = rdvtm(worker._rdgen);
+      if(worker._id != vtm) {
+        auto opt = _workers[vtm]._gque.steal();
+        if(opt) {
+          auto cuda_task = *(opt.value());
+          cuda_task(gw);
+          assigned = true;
+          break;
+        }
+      }
+      if(num_steals++ > _CUDA_MAX_STEALS) {
+        std::this_thread::yield();
+        if(num_yields++ > 100) {
+          break;
+        }
+      }
+    }
+  }
+}
+
+auto TaroV7::suspend() {
   struct awaiter: std::suspend_always {
-    CoroflowV6* _cf;
-    explicit awaiter(CoroflowV6* cf) noexcept : _cf{cf} {}
+    TaroV7* _cf;
+    explicit awaiter(TaroV7* cf) noexcept : _cf{cf} {}
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
       auto id = coro_handle.promise()._id;
       _cf->_enqueue(*(_cf->_this_worker()), _cf->_tasks[id].get());
@@ -384,21 +406,21 @@ auto CoroflowV6::suspend() {
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle CoroflowV6::emplace(C&& c) {
+TaskHandle TaroV7::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle CoroflowV6::emplace(C&& c) {
+TaskHandle TaroV7::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-bool CoroflowV6::is_DAG() const {
+bool TaroV7::is_DAG() const {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -412,24 +434,24 @@ bool CoroflowV6::is_DAG() const {
   return true;
 }
 
-void CoroflowV6::_enqueue(Worker& worker, Task* tp) {
+void TaroV7::_enqueue(Worker& worker, Task* tp) {
   worker._que.push(tp);
 }
 
-void CoroflowV6::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
+void TaroV7::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
   for(auto* tp: tps) {
     worker._que.push(tp);
   }
 }
 
-void CoroflowV6::_enqueue(Task* tp) {
+void TaroV7::_enqueue(Task* tp) {
   {
     std::scoped_lock lock(_qmtx);
     _que.push(tp);
   }
 }
 
-void CoroflowV6::_enqueue(const std::vector<Task*>& tps) {
+void TaroV7::_enqueue(const std::vector<Task*>& tps) {
   {
     std::scoped_lock lock(_qmtx);
     for(auto* tp: tps) {
@@ -438,7 +460,7 @@ void CoroflowV6::_enqueue(const std::vector<Task*>& tps) {
   }
 }
 
-void CoroflowV6::_process(Worker& worker, Task* tp) {
+void TaroV7::_process(Worker& worker, Task* tp) {
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -453,7 +475,7 @@ void CoroflowV6::_process(Worker& worker, Task* tp) {
   }
 }
 
-void CoroflowV6::_invoke_static_task(Worker& worker, Task* tp) {
+void TaroV7::_invoke_static_task(Worker& worker, Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -465,17 +487,10 @@ void CoroflowV6::_invoke_static_task(Worker& worker, Task* tp) {
   if(_finished.fetch_add(1) + 1 == _tasks.size()) {
     _stop = true;
     _notifier.notify(true);
-    _notify_gstop(true);
   }
 }
 
-void CoroflowV6::_notify_gstop(bool cond) {
-  std::scoped_lock lock(_gmtx);
-  _gstop = cond;
-  _gcv.notify_one();
-}
-
-void CoroflowV6::_invoke_coro_task(Worker& worker, Task* tp) {
+void TaroV7::_invoke_coro_task(Worker& worker, Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   coro->resume();
 
@@ -491,17 +506,16 @@ void CoroflowV6::_invoke_coro_task(Worker& worker, Task* tp) {
       // TODO: we need to check if there's no callback
       _stop = true;
       _notifier.notify(true);
-      _notify_gstop(true);
     }
   }
 }
 
-Worker* CoroflowV6::_this_worker() {
+Worker* TaroV7::_this_worker() {
   auto it = _wids.find(std::this_thread::get_id());
   return (it == _wids.end()) ? nullptr : &_workers[it->second];
 }
 
-bool CoroflowV6::_is_DAG(
+bool TaroV7::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion
@@ -528,4 +542,4 @@ bool CoroflowV6::_is_DAG(
 }
 
 
-} // end of namespace cf ==============================================
+} // end of namespace taro ==============================================

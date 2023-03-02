@@ -1,6 +1,6 @@
 #pragma once
 
-namespace cf { // =================================================================================
+namespace taro { // begin of namespace taro =================================================================================
 
 
 struct cudaStream {
@@ -35,4 +35,4 @@ void CUDART_CB _cuda_stream_callback_v4(cudaStream_t st, cudaError_t stat, void*
   //}
 }
 
-} // end of namespace cf ==============================================
+} // end of namespace taro ==============================================

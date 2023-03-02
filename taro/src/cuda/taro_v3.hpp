@@ -5,28 +5,45 @@
 #include "../task.hpp"
 #include "utility.hpp"
 
-namespace cf { // begin of namespace cf ===================================
+namespace taro { // begin of namespace taro ===================================
 
 // cudaStreamAddcallback
-// cudaStream is handled by users
+// cudaStream is handled by Taro
 
+class TaroV3;
+
+  
 // ==========================================================================
 //
-// Declaration of class CoroflowV2
+// Declaration of class TaroV3
 //
 // ==========================================================================
 //
 
 
-class CoroflowV2 {
+class TaroV3 {
 
-  friend void CUDART_CB _cuda_stream_callback_v2(cudaStream_t st, cudaError_t stat, void* void_args);
+  friend void CUDART_CB _cuda_stream_callback_v3(cudaStream_t st, cudaError_t stat, void* void_args);
+
+  struct cudaStream {
+    cudaStream_t st;
+    size_t id;
+  };
+
+  struct cudaCallbackData {
+    TaroV3* cf;
+    Coro::promise_type* prom;
+    size_t stream_id;
+    //size_t num_kernels;
+  };
+
+
 
   public:
 
-    CoroflowV2(size_t num_threads);
+    TaroV3(size_t num_threads, size_t num_streams);
 
-    ~CoroflowV2();
+    ~TaroV3();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -35,7 +52,9 @@ class CoroflowV2 {
     TaskHandle emplace(C&&);
 
     auto suspend();
-    auto cuda_suspend(cudaStream_t st);
+
+    template <typename C, std::enable_if_t<is_cuda_task_v<C>, void>* = nullptr>
+    auto cuda_suspend(C&&);
 
     void schedule();
 
@@ -61,56 +80,102 @@ class CoroflowV2 {
     );
 
     std::vector<std::thread> _workers;
+    std::vector<cudaStream> _streams;
+    std::vector<size_t> _in_stream_tasks;
+
     std::vector<std::unique_ptr<Task>> _tasks;
     std::queue<Task*> _queue;
+    // std::vector<bool> has specilized implementation
+    // concurrently writes to std::vector<bool> is never OK
+    // 0: false
+    // 1: true
     std::vector<int> _callbacks;
 
     std::mutex _mtx;
+    std::mutex _stream_mtx;
+    std::mutex _kernel_mtx;
     std::condition_variable _cv;
     std::atomic<bool> _stop{false};
     std::atomic<size_t> _finished{0};
 };
 
-// cuda callback
-void CUDART_CB _cuda_stream_callback_v2(cudaStream_t st, cudaError_t stat, void* void_args) {
+
+// ==========================================================================
+//
+// callback
+//
+// ==========================================================================
+
+void CUDART_CB _cuda_stream_callback_v3(cudaStream_t st, cudaError_t stat, void* void_args) {
   checkCudaError(stat);
 
   // unpack
-  auto* data = (std::pair<CoroflowV2*, Coro::promise_type*>*) void_args;
-  CoroflowV2* cf = data->first;
-  Coro::promise_type* prom = data->second;
+  auto* data = (TaroV3::cudaCallbackData*) void_args;
+  auto* cf = data->cf;
+  auto* prom = data->prom;
+  auto stream_id = data->stream_id;
+
+  {
+    std::scoped_lock(cf->_stream_mtx);
+    --cf->_in_stream_tasks[stream_id];
+  }
 
   cf->_callbacks[prom->_id] = 0;
   cf->_enqueue(cf->_tasks[prom->_id].get());
 }
 // ==========================================================================
 //
-// Definition of class CoroflowV2
+// Definition of class TaroV3
 //
 // ==========================================================================
 
-auto CoroflowV2::cuda_suspend(cudaStream_t st) {
+template <typename C, std::enable_if_t<is_cuda_task_v<C>, void>*>
+auto TaroV3::cuda_suspend(C&& c) {
 
   struct awaiter: std::suspend_always {
-    cudaStream_t _st;
-    std::pair<CoroflowV2*, Coro::promise_type*> _data;
-    explicit awaiter(CoroflowV2* cf, cudaStream_t st): _data{cf, nullptr}, _st{st} {}
+    std::function<void(cudaStream_t)> kernel;
+    cudaCallbackData data;
+
+    explicit awaiter(TaroV3* cf, C&& c): kernel{std::forward<C>(c)} {
+      data.cf = cf; 
+    }
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
-      _data.second = &(coro_handle.promise());
-      CoroflowV2* cf = _data.first;
-      cf->_callbacks[coro_handle.promise()._id] = 1;
-      cudaStreamAddCallback(_st, _cuda_stream_callback_v2, (void*)&_data, 0);
+
+      // choose the best stream id
+      size_t stream_id;
+      {
+        std::scoped_lock lock(data.cf->_stream_mtx);
+        stream_id = std::distance(
+          data.cf->_in_stream_tasks.begin(), 
+          std::min_element(data.cf->_in_stream_tasks.begin(), data.cf->_in_stream_tasks.end())
+        );
+        ++data.cf->_in_stream_tasks[stream_id];
+      }
+
+      // set callback data
+      data.prom = &(coro_handle.promise());
+      data.stream_id = stream_id;
+      data.cf->_callbacks[data.prom->_id] = 1;
+
+
+      // enqueue the kernel to the stream
+      {
+        std::scoped_lock lock(data.cf->_kernel_mtx);
+        kernel(data.cf->_streams[stream_id].st);
+        cudaStreamAddCallback(data.cf->_streams[stream_id].st, _cuda_stream_callback_v3, (void*)&data, 0);
+      }
+
     }
     
   };
 
-  return awaiter{this, st};
+  return awaiter{this, std::forward<C>(c)};
 }
 
-auto CoroflowV2::suspend() {  // value from co_await
+auto TaroV3::suspend() {  // value from co_await
   struct awaiter: public std::suspend_always { // definition of awaitable for co_await
     explicit awaiter() noexcept {}
-    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
+    void await_suspend(std::coroutine_handle<Coro::promise_type>) const noexcept {
       // TODO: add CPU callback?
     }
   };
@@ -118,7 +183,9 @@ auto CoroflowV2::suspend() {  // value from co_await
   return awaiter{};
 }
 
-CoroflowV2::CoroflowV2(size_t num_threads) {
+TaroV3::TaroV3(size_t num_threads, size_t num_streams) {
+
+  // CPU workers
   _workers.reserve(num_threads);
 
   for(size_t t = 0; t < num_threads; ++t) {
@@ -127,7 +194,6 @@ CoroflowV2::CoroflowV2(size_t num_threads) {
           Task* tp{nullptr};
           {
             std::unique_lock<std::mutex> lock(_mtx);
-            //_cv.wait_for(lock, t * std::chrono::milliseconds(300), [this]{ return this->_stop.load() || (!this->_queue.empty()); });
             _cv.wait(lock, [this]{ return _stop || (!_queue.empty()); });
             if(_stop) {
               return;
@@ -143,15 +209,27 @@ CoroflowV2::CoroflowV2(size_t num_threads) {
       }
     );
   }
+
+  // GPU streams
+  _in_stream_tasks.resize(num_streams, 0);
+  _streams.reserve(num_streams);
+  for(size_t i = 0; i < num_streams; ++i) {
+    _streams[i].id = i;
+    cudaStreamCreate(&(_streams[i].st));
+  }
 }
 
-CoroflowV2::~CoroflowV2() {
+TaroV3::~TaroV3() {
   for(auto& w: _workers) {
     w.join();
   } 
+
+  for(auto& st: _streams) {
+    cudaStreamDestroy(st.st);
+  }
 }
 
-void CoroflowV2::wait() {
+void TaroV3::wait() {
   for(auto& w: _workers) {
     w.join();
   } 
@@ -159,21 +237,21 @@ void CoroflowV2::wait() {
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle CoroflowV2::emplace(C&& c) {
+TaskHandle TaroV3::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle CoroflowV2::emplace(C&& c) {
+TaskHandle TaroV3::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-void CoroflowV2::schedule() {
+void TaroV3::schedule() {
 
   _callbacks.resize(_tasks.size(), 0);
 
@@ -190,7 +268,7 @@ void CoroflowV2::schedule() {
 }
 
 
-bool CoroflowV2::is_DAG() {
+bool TaroV3::is_DAG() {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -204,7 +282,7 @@ bool CoroflowV2::is_DAG() {
   return true;
 }
 
-bool CoroflowV2::_is_DAG(
+bool TaroV3::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion
@@ -230,7 +308,7 @@ bool CoroflowV2::_is_DAG(
   return true;
 }
 
-void CoroflowV2::_invoke_static_task(Task* tp) {
+void TaroV3::_invoke_static_task(Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -247,7 +325,7 @@ void CoroflowV2::_invoke_static_task(Task* tp) {
   }
 }
 
-void CoroflowV2::_invoke_coro_task(Task* tp) {
+void TaroV3::_invoke_coro_task(Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   if(!coro->done()) {
     coro->resume();
@@ -272,7 +350,7 @@ void CoroflowV2::_invoke_coro_task(Task* tp) {
   }
 }
 
-void CoroflowV2::_process(Task* tp) {
+void TaroV3::_process(Task* tp) {
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -287,7 +365,7 @@ void CoroflowV2::_process(Task* tp) {
   }
 }
 
-void CoroflowV2::_enqueue(Task* tp) {
+void TaroV3::_enqueue(Task* tp) {
   {
     std::unique_lock<std::mutex> lock(_mtx);
     _queue.push(tp);
@@ -295,4 +373,4 @@ void CoroflowV2::_enqueue(Task* tp) {
   _cv.notify_one();
 }
 
-} // end of namespace cf ==============================================
+} // end of namespace taro ==============================================

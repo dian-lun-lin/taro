@@ -1,12 +1,13 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
-#include <coroflow/src/cuda/coroflow_v1.hpp>
-#include <coroflow/src/cuda/coroflow_v2.hpp>
-#include <coroflow/src/cuda/coroflow_v3.hpp>
-#include <coroflow/src/cuda/coroflow_v4.hpp>
-#include <coroflow/src/cuda/coroflow_v5.hpp>
-#include <coroflow/src/cuda/coroflow_v6.hpp>
-#include <coroflow/src/cuda/algorithm.hpp>
+#include <taro/src/cuda/taro_v1.hpp>
+#include <taro/src/cuda/taro_v2.hpp>
+#include <taro/src/cuda/taro_v3.hpp>
+#include <taro/src/cuda/taro_v4.hpp>
+#include <taro/src/cuda/taro_v5.hpp>
+#include <taro/src/cuda/taro_v6.hpp>
+#include <taro/src/cuda/taro_v7.hpp>
+#include <taro/src/cuda/algorithm.hpp>
 #include <vector>
 #include <algorithm>
 #include <numeric>
@@ -17,14 +18,14 @@
 //// --------------------------------------------------------
 
 //void independent_v1(size_t num_threads, size_t num_tasks) {
-  //cf::CoroflowV1 cf{num_threads};
+  //taro::TaroV1 taro{num_threads};
 
   //std::vector<cudaStream_t> streams(num_tasks);
   //for(auto& st: streams) {
     //cudaStreamCreate(&st);
   //}
 
-  //std::vector<cf::TaskHandle> tasks(num_tasks);
+  //std::vector<taro::TaskHandle> tasks(num_tasks);
 
   //int* a;
   //int* b; 
@@ -48,16 +49,16 @@
   //}
 
   //for(size_t i = 0; i < num_tasks; ++i) {
-    //tasks[i] = cf.emplace([&streams, &cf, i, a, b, c, M, K, N, dim_grid, dim_block]() -> cf::Coro {
+    //tasks[i] = taro.emplace([&streams, &taro, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
       //cudaEvent_t finish;
       //cudaEventCreate(&finish);
 
-      //cf::cuda_matmul<<<dim_grid, dim_block, 0, streams[i]>>>(a, b, c + i * M * N, M, K, N);
+      //taro::cuda_matmul<<<dim_grid, dim_block, 0, streams[i]>>>(a, b, c + i * M * N, M, K, N);
       //cudaEventRecord(finish);
       //auto isdone = [&finish]() { return cudaEventQuery(finish) == cudaSuccess;  };
 
       //while(!isdone()) {
-        //co_await cf.suspend();
+        //co_await taro.suspend();
       //}
 
       //for(size_t k = 0; k < M * N; ++k) {
@@ -68,9 +69,9 @@
     //});
   //}
 
-  //REQUIRE(cf.is_DAG());
-  //cf.schedule();
-  //cf.wait();
+  //REQUIRE(taro.is_DAG());
+  //taro.schedule();
+  //taro.wait();
 
   
   //REQUIRE(cudaFree(a) == cudaSuccess);
@@ -120,14 +121,14 @@
 //}
 
 //void independent_v2(size_t num_threads, size_t num_tasks) {
-  //cf::CoroflowV2 cf{num_threads};
+  //taro::TaroV2 taro{num_threads};
 
   //std::vector<cudaStream_t> streams(num_tasks);
   //for(auto& st: streams) {
     //cudaStreamCreate(&st);
   //}
 
-  //std::vector<cf::TaskHandle> tasks(num_tasks);
+  //std::vector<taro::TaskHandle> tasks(num_tasks);
 
   //int* a;
   //int* b; 
@@ -150,10 +151,10 @@
   //}
 
   //for(size_t i = 0; i < num_tasks; ++i) {
-    //tasks[i] = cf.emplace( [&streams, &cf, i, a, b, c, M, K, N, dim_grid, dim_block]() -> cf::Coro {
+    //tasks[i] = taro.emplace( [&streams, &taro, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
 
-      //cf::cuda_matmul<<<dim_grid, dim_block, 0, streams[i]>>>(a, b, c + i * M * N, M, K, N);
-      //co_await cf.cuda_suspend(streams[i]);
+      //taro::cuda_matmul<<<dim_grid, dim_block, 0, streams[i]>>>(a, b, c + i * M * N, M, K, N);
+      //co_await taro.cuda_suspend(streams[i]);
 
       //for(size_t k = 0; k < M * N; ++k) {
         //REQUIRE(c[i * M * N + k] == (int)(M + K) * (K + N) * K);
@@ -163,9 +164,9 @@
     //});
   //}
 
-  //REQUIRE(cf.is_DAG());
-  //cf.schedule();
-  //cf.wait();
+  //REQUIRE(taro.is_DAG());
+  //taro.schedule();
+  //taro.wait();
 
   
   //REQUIRE(cudaFree(a) == cudaSuccess);
@@ -215,9 +216,9 @@
 //}
 
 //void independent_v3(size_t num_threads, size_t num_streams, size_t num_tasks) {
-  //cf::CoroflowV3 cf{num_threads, num_streams};
+  //taro::TaroV3 taro{num_threads, num_streams};
 
-  //std::vector<cf::TaskHandle> tasks(num_tasks);
+  //std::vector<taro::TaskHandle> tasks(num_tasks);
 
   //int* a;
   //int* b; 
@@ -240,9 +241,9 @@
   //}
 
   //for(size_t i = 0; i < num_tasks; ++i) {
-    //tasks[i] = cf.emplace([&cf, i, a, b, c, M, K, N, dim_grid, dim_block]() -> cf::Coro {
-      //co_await cf.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
-        //cf::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
+    //tasks[i] = taro.emplace([&taro, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
+      //co_await taro.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
+        //taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
       //});
 
       //for(size_t k = 0; k < M * N; ++k) {
@@ -253,9 +254,9 @@
     //});
   //}
 
-  //REQUIRE(cf.is_DAG());
-  //cf.schedule();
-  //cf.wait();
+  //REQUIRE(taro.is_DAG());
+  //taro.schedule();
+  //taro.wait();
 
   
   //REQUIRE(cudaFree(a) == cudaSuccess);
@@ -309,9 +310,9 @@
 //}
 
 //void independent_v4(size_t num_threads, size_t num_streams, size_t num_tasks) {
-  //cf::CoroflowV4 cf{num_threads, num_streams};
+  //taro::TaroV4 taro{num_threads, num_streams};
 
-  //std::vector<cf::TaskHandle> tasks(num_tasks);
+  //std::vector<taro::TaskHandle> tasks(num_tasks);
 
   //int* a;
   //int* b; 
@@ -334,9 +335,9 @@
   //}
 
   //for(size_t i = 0; i < num_tasks; ++i) {
-    //tasks[i] = cf.emplace([&cf, i, a, b, c, M, K, N, dim_grid, dim_block]() -> cf::Coro {
-      //co_await cf.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
-        //cf::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
+    //tasks[i] = taro.emplace([&taro, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
+      //co_await taro.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
+        //taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
       //});
 
       //for(size_t k = 0; k < M * N; ++k) {
@@ -347,9 +348,9 @@
     //});
   //}
 
-  //REQUIRE(cf.is_DAG());
-  //cf.schedule();
-  //cf.wait();
+  //REQUIRE(taro.is_DAG());
+  //taro.schedule();
+  //taro.wait();
 
   
   //REQUIRE(cudaFree(a) == cudaSuccess);
@@ -404,9 +405,9 @@
 
 
 //void independent_v5(size_t num_threads, size_t num_streams, size_t num_tasks) {
-  //cf::CoroflowV5 cf{num_threads, num_streams};
+  //taro::TaroV5 taro{num_threads, num_streams};
 
-  //std::vector<cf::TaskHandle> tasks(num_tasks);
+  //std::vector<taro::TaskHandle> tasks(num_tasks);
 
   //int* a;
   //int* b; 
@@ -429,9 +430,9 @@
   //}
 
   //for(size_t i = 0; i < num_tasks; ++i) {
-    //tasks[i] = cf.emplace([&cf, i, a, b, c, M, K, N, dim_grid, dim_block]() -> cf::Coro {
-      //co_await cf.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
-        //cf::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
+    //tasks[i] = taro.emplace([&taro, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
+      //co_await taro.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
+        //taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
       //});
 
       //for(size_t k = 0; k < M * N; ++k) {
@@ -442,9 +443,9 @@
     //});
   //}
 
-  //REQUIRE(cf.is_DAG());
-  //cf.schedule();
-  //cf.wait();
+  //REQUIRE(taro.is_DAG());
+  //taro.schedule();
+  //taro.wait();
 
   
   //REQUIRE(cudaFree(a) == cudaSuccess);
@@ -499,9 +500,9 @@
 
 
 void independent_v6(size_t num_threads, size_t num_streams, size_t num_tasks) {
-  cf::CoroflowV6 cf{num_threads, num_streams};
+  taro::TaroV6 taro{num_threads, num_streams};
 
-  std::vector<cf::TaskHandle> tasks(num_tasks);
+  std::vector<taro::TaskHandle> tasks(num_tasks);
 
   int* a;
   int* b; 
@@ -524,9 +525,9 @@ void independent_v6(size_t num_threads, size_t num_streams, size_t num_tasks) {
   }
 
   for(size_t i = 0; i < num_tasks; ++i) {
-    tasks[i] = cf.emplace([&cf, i, a, b, c, M, K, N, dim_grid, dim_block]() -> cf::Coro {
-      co_await cf.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
-        cf::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
+    tasks[i] = taro.emplace([&taro, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
+      co_await taro.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
+        taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
       });
 
       for(size_t k = 0; k < M * N; ++k) {
@@ -537,9 +538,9 @@ void independent_v6(size_t num_threads, size_t num_streams, size_t num_tasks) {
     });
   }
 
-  REQUIRE(cf.is_DAG());
-  cf.schedule();
-  cf.wait();
+  REQUIRE(taro.is_DAG());
+  taro.schedule();
+  taro.wait();
 
   
   REQUIRE(cudaFree(a) == cudaSuccess);
@@ -590,5 +591,99 @@ TEST_CASE("independent.v6.4thread.8stream.38task" * doctest::timeout(300)) {
 
 TEST_CASE("independent.v6.4thread.15stream.123task" * doctest::timeout(300)) {
   independent_v6(4, 15, 123);
+}
+
+void independent_v7(size_t num_threads, size_t num_streams, size_t num_tasks) {
+  taro::TaroV7 taro{num_threads, num_streams};
+
+  std::vector<taro::TaskHandle> tasks(num_tasks);
+
+  int* a;
+  int* b; 
+  int* c;
+  size_t M{10};
+  size_t K{10};
+  size_t N{10};
+  size_t BLOCK_SIZE = 32;
+  dim3 dim_grid((N - 1) / BLOCK_SIZE + 1, (N - 1) / BLOCK_SIZE + 1, 1);
+  dim3 dim_block(BLOCK_SIZE, BLOCK_SIZE, 1);
+
+  cudaMallocManaged(&a, M * K * sizeof(int));
+  cudaMallocManaged(&b, K * N * sizeof(int));
+  cudaMallocManaged(&c, M * N * num_tasks * sizeof(int));
+  for(size_t i = 0; i < M * K; ++i) {
+    a[i] = M + K;
+  }
+  for(size_t i = 0; i < K * N; ++i) {
+    b[i] = K + N;
+  }
+
+  for(size_t i = 0; i < num_tasks; ++i) {
+    tasks[i] = taro.emplace([&taro, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
+      co_await taro.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
+        taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
+      });
+
+      for(size_t k = 0; k < M * N; ++k) {
+        REQUIRE(c[k + i * M * N] == (int)(M + K) * (K + N) * K);
+      }
+
+      co_return;
+    });
+  }
+
+  REQUIRE(taro.is_DAG());
+  taro.schedule();
+  taro.wait();
+
+  
+  REQUIRE(cudaFree(a) == cudaSuccess);
+  REQUIRE(cudaFree(b) == cudaSuccess);
+  REQUIRE(cudaFree(c) == cudaSuccess);
+
+}
+
+TEST_CASE("independent.v7.1thread.1stream.1task" * doctest::timeout(300)) {
+  independent_v7(1, 1, 1);
+}
+
+TEST_CASE("independent.v7.2thread.1stream.3task" * doctest::timeout(300)) {
+  independent_v7(2, 1, 3);
+}
+
+TEST_CASE("independent.v7.2thread.2stream.18task" * doctest::timeout(300)) {
+  independent_v7(2, 2, 18);
+}
+
+TEST_CASE("independent.v7.2thread.3stream.18task" * doctest::timeout(300)) {
+  independent_v7(2, 3, 18);
+}
+
+TEST_CASE("independent.v7.3thread.1stream.2task" * doctest::timeout(300)) {
+  independent_v7(3, 1, 2);
+}
+
+TEST_CASE("independent.v7.3thread.2stream.4task" * doctest::timeout(300)) {
+  independent_v7(3, 2, 4);
+}
+
+TEST_CASE("independent.v7.3thread.3stream.18task" * doctest::timeout(300)) {
+  independent_v7(3, 3, 18);
+}
+
+TEST_CASE("independent.v7.4thread.1stream.1task" * doctest::timeout(300)) {
+  independent_v7(4, 1, 1);
+}
+
+TEST_CASE("independent.v7.4thread.2stream.11task" * doctest::timeout(300)) {
+  independent_v7(4, 2, 11);
+}
+
+TEST_CASE("independent.v7.4thread.8stream.38task" * doctest::timeout(300)) {
+  independent_v7(4, 8, 38);
+}
+
+TEST_CASE("independent.v7.4thread.15stream.123task" * doctest::timeout(300)) {
+  independent_v7(4, 15, 123);
 }
 

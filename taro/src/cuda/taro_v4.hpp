@@ -8,23 +8,23 @@
 #include "../../../3rd-party/taskflow/notifier.hpp"
 #include "../../../3rd-party/taskflow/wsq.hpp"
 
-namespace cf { // begin of namespace cf ===================================
+namespace taro { // begin of namespace taro ===================================
 
-class CoroflowV4;
+class TaroV4;
   
 // cudaStreamAddcallback
-// cudaStream is handled by Coroflow
+// cudaStream is handled by Taro
 // work-stealing approach
 //
 // ==========================================================================
 //
-// Declaration of class CoroflowV4
+// Declaration of class TaroV4
 //
 // ==========================================================================
 //
 
 
-class CoroflowV4 {
+class TaroV4 {
 
   friend void CUDART_CB _cuda_stream_callback_v4(cudaStream_t st, cudaError_t stat, void* void_args);
 
@@ -34,7 +34,7 @@ class CoroflowV4 {
   };
 
   struct cudaCallbackData {
-    CoroflowV4* cf;
+    TaroV4* cf;
     Coro::promise_type* prom;
     size_t stream_id;
     //size_t num_kernels;
@@ -43,9 +43,9 @@ class CoroflowV4 {
 
   public:
 
-    CoroflowV4(size_t num_threads, size_t num_streams);
+    TaroV4(size_t num_threads, size_t num_streams);
 
-    ~CoroflowV4();
+    ~TaroV4();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -122,7 +122,7 @@ void CUDART_CB _cuda_stream_callback_v4(cudaStream_t st, cudaError_t stat, void*
   checkCudaError(stat);
 
   // unpack
-  auto* data = (CoroflowV4::cudaCallbackData*) void_args;
+  auto* data = (TaroV4::cudaCallbackData*) void_args;
   auto* cf = data->cf;
   auto* prom = data->prom;
   //auto stream_id = data->stream_id;
@@ -134,11 +134,11 @@ void CUDART_CB _cuda_stream_callback_v4(cudaStream_t st, cudaError_t stat, void*
 
 // ==========================================================================
 //
-// Definition of class CoroflowV4
+// Definition of class TaroV4
 //
 // ==========================================================================
 
-CoroflowV4::CoroflowV4(size_t num_threads, size_t num_streams): 
+TaroV4::TaroV4(size_t num_threads, size_t num_streams): 
   _workers{num_threads}, _notifier{num_threads}, _MAX_STEALS{(num_threads + 1) << 1} {
 
   cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
@@ -190,14 +190,14 @@ CoroflowV4::CoroflowV4(size_t num_threads, size_t num_streams):
 }
 
 // get a task from worker's own queue
-void CoroflowV4::_exploit_task(Worker& worker) {
+void TaroV4::_exploit_task(Worker& worker) {
   while(auto task = worker._que.pop()) {
     _process(worker, task.value());
   }
 }
 
 // try to steal
-Task* CoroflowV4::_explore_task(Worker& worker) {
+Task* TaroV4::_explore_task(Worker& worker) {
 
   size_t num_steals{0};
   size_t num_yields{0};
@@ -226,7 +226,7 @@ Task* CoroflowV4::_explore_task(Worker& worker) {
   return task;
 }
 
-bool CoroflowV4::_wait_for_task(Worker& worker) {
+bool TaroV4::_wait_for_task(Worker& worker) {
 
   Task* task{nullptr};
   explore_task:
@@ -269,19 +269,19 @@ bool CoroflowV4::_wait_for_task(Worker& worker) {
 }
 
 
-CoroflowV4::~CoroflowV4() {
+TaroV4::~TaroV4() {
   for(auto& st: _streams) {
     cudaStreamDestroy(st.st);
   }
 }
 
-void CoroflowV4::wait() {
+void TaroV4::wait() {
   for(auto& t: _threads) {
     t.join();
   }
 }
 
-void CoroflowV4::schedule() {
+void TaroV4::schedule() {
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
@@ -295,13 +295,13 @@ void CoroflowV4::schedule() {
 }
 
 template <typename C, std::enable_if_t<is_cuda_task_v<C>, void>*>
-auto CoroflowV4::cuda_suspend(C&& c) {
+auto TaroV4::cuda_suspend(C&& c) {
 
   struct awaiter: std::suspend_always {
     std::function<void(cudaStream_t)> kernel;
     cudaCallbackData data;
 
-    explicit awaiter(CoroflowV4* cf, C&& c): kernel{std::forward<C>(c)} {
+    explicit awaiter(TaroV4* cf, C&& c): kernel{std::forward<C>(c)} {
       data.cf = cf; 
     }
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
@@ -336,10 +336,10 @@ auto CoroflowV4::cuda_suspend(C&& c) {
   return awaiter{this, std::forward<C>(c)};
 }
 
-auto CoroflowV4::suspend() {
+auto TaroV4::suspend() {
   struct awaiter: std::suspend_always {
-    CoroflowV4* _cf;
-    explicit awaiter(CoroflowV4* cf) noexcept : _cf{cf} {}
+    TaroV4* _cf;
+    explicit awaiter(TaroV4* cf) noexcept : _cf{cf} {}
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
       auto id = coro_handle.promise()._id;
       _cf->_enqueue(*(_cf->_this_worker()), _cf->_tasks[id].get());
@@ -351,21 +351,21 @@ auto CoroflowV4::suspend() {
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle CoroflowV4::emplace(C&& c) {
+TaskHandle TaroV4::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle CoroflowV4::emplace(C&& c) {
+TaskHandle TaroV4::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-bool CoroflowV4::is_DAG() const {
+bool TaroV4::is_DAG() const {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -379,24 +379,24 @@ bool CoroflowV4::is_DAG() const {
   return true;
 }
 
-void CoroflowV4::_enqueue(Worker& worker, Task* tp) {
+void TaroV4::_enqueue(Worker& worker, Task* tp) {
   worker._que.push(tp);
 }
 
-void CoroflowV4::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
+void TaroV4::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
   for(auto* tp: tps) {
     worker._que.push(tp);
   }
 }
 
-void CoroflowV4::_enqueue(Task* tp) {
+void TaroV4::_enqueue(Task* tp) {
   {
     std::scoped_lock lock(_qmtx);
     _que.push(tp);
   }
 }
 
-void CoroflowV4::_enqueue(const std::vector<Task*>& tps) {
+void TaroV4::_enqueue(const std::vector<Task*>& tps) {
   {
     std::scoped_lock lock(_qmtx);
     for(auto* tp: tps) {
@@ -405,7 +405,7 @@ void CoroflowV4::_enqueue(const std::vector<Task*>& tps) {
   }
 }
 
-void CoroflowV4::_process(Worker& worker, Task* tp) {
+void TaroV4::_process(Worker& worker, Task* tp) {
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -420,7 +420,7 @@ void CoroflowV4::_process(Worker& worker, Task* tp) {
   }
 }
 
-void CoroflowV4::_invoke_static_task(Worker& worker, Task* tp) {
+void TaroV4::_invoke_static_task(Worker& worker, Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -435,7 +435,7 @@ void CoroflowV4::_invoke_static_task(Worker& worker, Task* tp) {
   }
 }
 
-void CoroflowV4::_invoke_coro_task(Worker& worker, Task* tp) {
+void TaroV4::_invoke_coro_task(Worker& worker, Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   coro->resume();
 
@@ -455,12 +455,12 @@ void CoroflowV4::_invoke_coro_task(Worker& worker, Task* tp) {
   }
 }
 
-Worker* CoroflowV4::_this_worker() {
+Worker* TaroV4::_this_worker() {
   auto it = _wids.find(std::this_thread::get_id());
   return (it == _wids.end()) ? nullptr : &_workers[it->second];
 }
 
-bool CoroflowV4::_is_DAG(
+bool TaroV4::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion
@@ -487,4 +487,4 @@ bool CoroflowV4::_is_DAG(
 }
 
 
-} // end of namespace cf ==============================================
+} // end of namespace taro ==============================================

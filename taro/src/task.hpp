@@ -2,7 +2,7 @@
 
 #include "coro.hpp"
 
-namespace cf { // begin of namespace cf ===================================
+namespace taro { // begin of namespace taro ===================================
 
 // ==========================================================================
 //
@@ -48,20 +48,21 @@ constexpr auto get_index_v = get_index<T, Ts...>::value;
 
 class Task {
 
-  friend class Coroflow;
-  friend class CoroflowV1;
-  friend class CoroflowV2;
-  friend class CoroflowV3;
-  friend class CoroflowV4;
-  friend class CoroflowV5;
-  friend class CoroflowV6;
+  friend class Taro;
+  friend class TaroV1;
+  friend class TaroV2;
+  friend class TaroV3;
+  friend class TaroV4;
+  friend class TaroV5;
+  friend class TaroV6;
+  friend class TaroV7;
   friend class TaskHandle;
 
   struct CoroTask {
     template <typename C>
     CoroTask(C&&);
 
-    std::function<cf::Coro()> work;
+    std::function<taro::Coro()> work;
     Coro coro;
     void resume() {
       coro._resume();
@@ -179,4 +180,4 @@ TaskHandle& TaskHandle::succeed(TaskHandle ch) {
 }
 
 
-} // end of namespace cf ==============================================
+} // end of namespace taro ==============================================

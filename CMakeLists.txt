@@ -3,17 +3,17 @@ cmake_minimum_required (VERSION 3.25)
 MESSAGE(STATUS "CMAKE_ROOT: " ${CMAKE_ROOT})
 
 # Project name
-project(Coroflow VERSION 1.0.0 LANGUAGES CXX)
+project(Taro VERSION 1.0.0 LANGUAGES CXX)
 
 # Turn on the verbose
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 # defult release build
-set(COROFLOW_DEFAULT_BUILD_TYPE "Release")
+set(TARO_DEFAULT_BUILD_TYPE "Release")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  message(STATUS "Setting build type to '${COROFLOW_DEFAULT_BUILD_TYPE}'")
+  message(STATUS "Setting build type to '${TARO_DEFAULT_BUILD_TYPE}'")
   set(
-    CMAKE_BUILD_TYPE "${COROFLOW_DEFAULT_BUILD_TYPE}" 
+    CMAKE_BUILD_TYPE "${TARO_DEFAULT_BUILD_TYPE}" 
     CACHE
     STRING "Choose the type of build." 
     FORCE
@@ -30,28 +30,28 @@ endif()
 #not test yet
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
-	  message(FATAL_ERROR "\n Coroflow requires g++ at least v11.0")
+	  message(FATAL_ERROR "\n Taro requires g++ at least v11.0")
   endif()
 ## clang++
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "15.0")
-    message(FATAL_ERROR "\n Coroflow requires clang++ at least v15.0")
+    message(FATAL_ERROR "\n Taro requires clang++ at least v15.0")
   endif() 
 endif()
 
 # Args
-option(COROFLOW_BUILD_TESTS "Enables build of tests" ON)
+option(TARO_BUILD_TESTS "Enables build of tests" ON)
 
 # installation path
-set(COROFLOW_UTEST_DIR ${PROJECT_SOURCE_DIR}/unittests)
-set(COROFLOW_3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd-party)
+set(TARO_UTEST_DIR ${PROJECT_SOURCE_DIR}/unittests)
+set(TARO_3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd-party)
 
 # include test
 include(CTest)
 
 #compiler setting 
 add_library(error_settings INTERFACE)
-add_library(coroflow::error_settings ALIAS error_settings)
+add_library(taro::error_settings ALIAS error_settings)
 
 target_compile_options(
   error_settings
@@ -62,7 +62,7 @@ target_compile_options(
 
 ##optmization
 add_library(optimize_settings INTERFACE)
-add_library(coroflow::optimize_settings ALIAS optimize_settings)
+add_library(taro::optimize_settings ALIAS optimize_settings)
 
 target_compile_options(
   optimize_settings INTERFACE
@@ -82,12 +82,12 @@ set(CUDA_NVCC_FLAGS_DEBUG "${CUDA_NVCC_FLAGS_DEBUG}" "-lineinfo")
 
 #default
 add_library(default_settings INTERFACE)
-add_library(coroflow::default_settings ALIAS default_settings)
+add_library(taro::default_settings ALIAS default_settings)
 target_link_libraries(
   default_settings 
   INTERFACE 
-  coroflow::error_settings 
-  coroflow::optimize_settings 
+  taro::error_settings 
+  taro::optimize_settings 
 )
 
 
@@ -137,31 +137,31 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 #-----------------------
 
 # test
-if(${COROFLOW_BUILD_TESTS})
+if(${TARO_BUILD_TESTS})
 
 enable_testing()
-include(${COROFLOW_3RD_PARTY_DIR}/doctest/doctest.cmake)
+include(${TARO_3RD_PARTY_DIR}/doctest/doctest.cmake)
 
 message(STATUS "Building unit tests ...")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${COROFLOW_UTEST_DIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TARO_UTEST_DIR})
 
-#add_executable(simple_cpu ${COROFLOW_UTEST_DIR}/simple.cpp)
-#target_include_directories(simple_cpu PRIVATE ${COROFLOW_3RD_PARTY_DIR}/doctest)
+#add_executable(simple_cpu ${TARO_UTEST_DIR}/simple.cpp)
+#target_include_directories(simple_cpu PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
 #target_link_libraries(simple_cpu Threads::Threads)
 #doctest_discover_tests(simple_cpu)
 
-cuda_add_executable(test_linear_chain ${COROFLOW_UTEST_DIR}/linear_chain.cu)
-target_include_directories(test_linear_chain PRIVATE ${COROFLOW_3RD_PARTY_DIR}/doctest)
+cuda_add_executable(test_linear_chain ${TARO_UTEST_DIR}/linear_chain.cu)
+target_include_directories(test_linear_chain PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
 target_link_libraries(test_linear_chain Threads::Threads)
 doctest_discover_tests(test_linear_chain)
 
-cuda_add_executable(test_independent ${COROFLOW_UTEST_DIR}/independent.cu)
-target_include_directories(test_independent PRIVATE ${COROFLOW_3RD_PARTY_DIR}/doctest)
+cuda_add_executable(test_independent ${TARO_UTEST_DIR}/independent.cu)
+target_include_directories(test_independent PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
 target_link_libraries(test_independent Threads::Threads)
 doctest_discover_tests(test_independent)
 
-#cuda_add_executable(test_map_reduce ${COROFLOW_UTEST_DIR}/map_reduce.cu)
-#target_include_directories(test_map_reduce PRIVATE ${COROFLOW_3RD_PARTY_DIR}/doctest)
+#cuda_add_executable(test_map_reduce ${TARO_UTEST_DIR}/map_reduce.cu)
+#target_include_directories(test_map_reduce PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
 #target_link_libraries(test_map_reduce Threads::Threads)
 #doctest_discover_tests(test_map_reduce)
 

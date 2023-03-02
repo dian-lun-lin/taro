@@ -1,12 +1,12 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
-#include <coroflow/src/cuda/coroflow_v1.hpp>
-#include <coroflow/src/cuda/coroflow_v2.hpp>
-#include <coroflow/src/cuda/coroflow_v3.hpp>
-#include <coroflow/src/cuda/coroflow_v4.hpp>
-#include <coroflow/src/cuda/coroflow_v5.hpp>
-#include <coroflow/src/cuda/coroflow_v6.hpp>
-#include <coroflow/src/cuda/algorithm.hpp>
+#include <taro/src/cuda/taro_v1.hpp>
+#include <taro/src/cuda/taro_v2.hpp>
+#include <taro/src/cuda/taro_v3.hpp>
+#include <taro/src/cuda/taro_v4.hpp>
+#include <taro/src/cuda/taro_v5.hpp>
+#include <taro/src/cuda/taro_v6.hpp>
+#include <taro/src/cuda/algorithm.hpp>
 #include <vector>
 #include <algorithm>
 #include <numeric>
@@ -30,11 +30,11 @@ void linear_chain_v1(size_t num_tasks, size_t num_threads) {
   cudaStream_t st;
   cudaStreamCreate(&st);
 
-  cf::CoroflowV1 cf{num_threads};
-  std::vector<cf::TaskHandle> _tasks(num_tasks);
+  taro::TaroV1 taro{num_threads};
+  std::vector<taro::TaskHandle> _tasks(num_tasks);
 
   for(size_t t = 0; t < num_tasks; ++t) {
-    _tasks[t] = cf.emplace([t, counter, &cf, st]() -> cf::Coro {
+    _tasks[t] = taro.emplace([t, counter, &taro, st]() -> taro::Coro {
       REQUIRE(*counter == t); 
 
       cudaEvent_t finish;
@@ -44,7 +44,7 @@ void linear_chain_v1(size_t num_tasks, size_t num_threads) {
 
       auto isdone = [&finish]() { return cudaEventQuery(finish) == cudaSuccess;  };
       while(!isdone()) {
-        co_await cf.suspend();
+        co_await taro.suspend();
       }
 
       REQUIRE(*counter == t + 1); 
@@ -55,9 +55,9 @@ void linear_chain_v1(size_t num_tasks, size_t num_threads) {
     _tasks[t].succeed(_tasks[t + 1]);
   }
 
-  REQUIRE(cf.is_DAG());
-  cf.schedule();
-  cf.wait(); 
+  REQUIRE(taro.is_DAG());
+  taro.schedule();
+  taro.wait(); 
   cudaStreamDestroy(st);
 }
 
@@ -100,11 +100,11 @@ void linear_chain_v2(size_t num_tasks, size_t num_threads) {
   cudaStream_t st;
   cudaStreamCreate(&st);
 
-  cf::CoroflowV2 cf{num_threads};
-  std::vector<cf::TaskHandle> _tasks(num_tasks);
+  taro::TaroV2 taro{num_threads};
+  std::vector<taro::TaskHandle> _tasks(num_tasks);
 
   for(size_t t = 0; t < num_tasks; ++t) {
-    _tasks[t] = cf.emplace([t, counter, &cf, st]() -> cf::Coro {
+    _tasks[t] = taro.emplace([t, counter, &taro, st]() -> taro::Coro {
       REQUIRE(*counter == t); 
 
       cudaEvent_t finish;
@@ -114,7 +114,7 @@ void linear_chain_v2(size_t num_tasks, size_t num_threads) {
 
       auto isdone = [&finish]() { return cudaEventQuery(finish) == cudaSuccess;  };
       while(!isdone()) {
-        co_await cf.suspend();
+        co_await taro.suspend();
       }
 
       REQUIRE(*counter == t + 1); 
@@ -125,9 +125,9 @@ void linear_chain_v2(size_t num_tasks, size_t num_threads) {
     _tasks[t].succeed(_tasks[t + 1]);
   }
 
-  REQUIRE(cf.is_DAG());
-  cf.schedule();
-  cf.wait(); 
+  REQUIRE(taro.is_DAG());
+  taro.schedule();
+  taro.wait(); 
   cudaStreamDestroy(st);
 }
 
@@ -167,14 +167,14 @@ void linear_chain_v3(size_t num_tasks, size_t num_threads, size_t num_streams) {
   int* counter;
   cudaMallocManaged(&counter, sizeof(int));
 
-  cf::CoroflowV3 cf{num_threads, num_streams};
-  std::vector<cf::TaskHandle> _tasks(num_tasks);
+  taro::TaroV3 taro{num_threads, num_streams};
+  std::vector<taro::TaskHandle> _tasks(num_tasks);
 
   for(size_t t = 0; t < num_tasks; ++t) {
-    _tasks[t] = cf.emplace([t, counter, &cf]() -> cf::Coro {
+    _tasks[t] = taro.emplace([t, counter, &taro]() -> taro::Coro {
       REQUIRE(*counter == t); 
 
-      co_await cf.cuda_suspend([counter](cudaStream_t st) {
+      co_await taro.cuda_suspend([counter](cudaStream_t st) {
         count<<<8, 32, 0, st>>>(counter);
       });
 
@@ -186,9 +186,9 @@ void linear_chain_v3(size_t num_tasks, size_t num_threads, size_t num_streams) {
     _tasks[t].succeed(_tasks[t + 1]);
   }
 
-  REQUIRE(cf.is_DAG());
-  cf.schedule();
-  cf.wait(); 
+  REQUIRE(taro.is_DAG());
+  taro.schedule();
+  taro.wait(); 
 }
 
 TEST_CASE("linear_chain_v3.1thread.1stream" * doctest::timeout(300)) {
@@ -227,14 +227,14 @@ void linear_chain_v4(size_t num_tasks, size_t num_threads, size_t num_streams) {
   int* counter;
   cudaMallocManaged(&counter, sizeof(int));
 
-  cf::CoroflowV4 cf{num_threads, num_streams};
-  std::vector<cf::TaskHandle> _tasks(num_tasks);
+  taro::TaroV4 taro{num_threads, num_streams};
+  std::vector<taro::TaskHandle> _tasks(num_tasks);
 
   for(size_t t = 0; t < num_tasks; ++t) {
-    _tasks[t] = cf.emplace([t, counter, &cf]() -> cf::Coro {
+    _tasks[t] = taro.emplace([t, counter, &taro]() -> taro::Coro {
       REQUIRE(*counter == t); 
 
-      co_await cf.cuda_suspend([counter](cudaStream_t st) {
+      co_await taro.cuda_suspend([counter](cudaStream_t st) {
         count<<<8, 32, 0, st>>>(counter);
       });
 
@@ -246,9 +246,9 @@ void linear_chain_v4(size_t num_tasks, size_t num_threads, size_t num_streams) {
     _tasks[t].succeed(_tasks[t + 1]);
   }
 
-  REQUIRE(cf.is_DAG());
-  cf.schedule();
-  cf.wait(); 
+  REQUIRE(taro.is_DAG());
+  taro.schedule();
+  taro.wait(); 
 }
 
 TEST_CASE("linear_chain_v4.1thread.1stream" * doctest::timeout(300)) {
@@ -287,14 +287,14 @@ void linear_chain_v5(size_t num_tasks, size_t num_threads, size_t num_streams) {
   int* counter;
   cudaMallocManaged(&counter, sizeof(int));
 
-  cf::CoroflowV5 cf{num_threads, num_streams};
-  std::vector<cf::TaskHandle> _tasks(num_tasks);
+  taro::TaroV5 taro{num_threads, num_streams};
+  std::vector<taro::TaskHandle> _tasks(num_tasks);
 
   for(size_t t = 0; t < num_tasks; ++t) {
-    _tasks[t] = cf.emplace([t, counter, &cf]() -> cf::Coro {
+    _tasks[t] = taro.emplace([t, counter, &taro]() -> taro::Coro {
       REQUIRE(*counter == t); 
 
-      co_await cf.cuda_suspend([counter](cudaStream_t st) {
+      co_await taro.cuda_suspend([counter](cudaStream_t st) {
         count<<<8, 32, 0, st>>>(counter);
       });
 
@@ -306,9 +306,9 @@ void linear_chain_v5(size_t num_tasks, size_t num_threads, size_t num_streams) {
     _tasks[t].succeed(_tasks[t + 1]);
   }
 
-  REQUIRE(cf.is_DAG());
-  cf.schedule();
-  cf.wait(); 
+  REQUIRE(taro.is_DAG());
+  taro.schedule();
+  taro.wait(); 
 }
 
 TEST_CASE("linear_chain_v5.1thread.1stream" * doctest::timeout(300)) {
@@ -347,14 +347,14 @@ void linear_chain_v6(size_t num_tasks, size_t num_threads, size_t num_streams) {
   int* counter;
   cudaMallocManaged(&counter, sizeof(int));
 
-  cf::CoroflowV6 cf{num_threads, num_streams};
-  std::vector<cf::TaskHandle> _tasks(num_tasks);
+  taro::TaroV6 taro{num_threads, num_streams};
+  std::vector<taro::TaskHandle> _tasks(num_tasks);
 
   for(size_t t = 0; t < num_tasks; ++t) {
-    _tasks[t] = cf.emplace([t, counter, &cf]() -> cf::Coro {
+    _tasks[t] = taro.emplace([t, counter, &taro]() -> taro::Coro {
       REQUIRE(*counter == t); 
 
-      co_await cf.cuda_suspend([counter](cudaStream_t st) {
+      co_await taro.cuda_suspend([counter](cudaStream_t st) {
         count<<<8, 32, 0, st>>>(counter);
       });
 
@@ -366,9 +366,9 @@ void linear_chain_v6(size_t num_tasks, size_t num_threads, size_t num_streams) {
     _tasks[t].succeed(_tasks[t + 1]);
   }
 
-  REQUIRE(cf.is_DAG());
-  cf.schedule();
-  cf.wait(); 
+  REQUIRE(taro.is_DAG());
+  taro.schedule();
+  taro.wait(); 
 }
 
 TEST_CASE("linear_chain_v6.1thread.1stream" * doctest::timeout(300)) {

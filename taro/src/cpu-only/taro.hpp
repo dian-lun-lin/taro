@@ -4,26 +4,26 @@
 #include "coro.hpp"
 #include "task.hpp"
 
-namespace cf { // begin of namespace cf ===================================
+namespace taro { // begin of namespace taro ===================================
 
 // without cuda (.cu file)
 
 // ==========================================================================
 //
-// Declaration of class Coroflow
+// Declaration of class Taro
 //
 // ==========================================================================
 //
 
 
-class Coroflow {
+class Taro {
 
 
   public:
 
-    Coroflow(size_t num_threads);
+    Taro(size_t num_threads);
 
-    ~Coroflow();
+    ~Taro();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -70,11 +70,11 @@ class Coroflow {
 
 // ==========================================================================
 //
-// Definition of class Coroflow
+// Definition of class Taro
 //
 // ==========================================================================
 
-Coroflow::Coroflow(size_t num_threads) {
+Taro::Taro(size_t num_threads) {
   _workers.reserve(num_threads);
 
   for(size_t t = 0; t < num_threads; ++t) {
@@ -101,13 +101,13 @@ Coroflow::Coroflow(size_t num_threads) {
   }
 }
 
-Coroflow::~Coroflow() {
+Taro::~Taro() {
   for(auto& w: _workers) {
     w.join();
   } 
 }
 
-void Coroflow::wait() {
+void Taro::wait() {
   for(auto& w: _workers) {
     w.join();
   } 
@@ -115,21 +115,21 @@ void Coroflow::wait() {
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle Coroflow::emplace(C&& c) {
+TaskHandle Taro::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle Coroflow::emplace(C&& c) {
+TaskHandle Taro::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-auto Coroflow::suspend() {  // value from co_await
+auto Taro::suspend() {  // value from co_await
   struct awaiter: public std::suspend_always { // definition of awaitable for co_await
     explicit awaiter() noexcept {}
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
@@ -140,7 +140,7 @@ auto Coroflow::suspend() {  // value from co_await
   return awaiter{};
 }
 
-void Coroflow::schedule() {
+void Taro::schedule() {
 
   _callbacks.resize(_tasks.size(), false);
 
@@ -157,7 +157,7 @@ void Coroflow::schedule() {
 }
 
 
-bool Coroflow::is_DAG() {
+bool Taro::is_DAG() {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -171,7 +171,7 @@ bool Coroflow::is_DAG() {
   return true;
 }
 
-bool Coroflow::_is_DAG(
+bool Taro::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion
@@ -197,7 +197,7 @@ bool Coroflow::_is_DAG(
   return true;
 }
 
-void Coroflow::_invoke_static_task(Task* tp) {
+void Taro::_invoke_static_task(Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -214,7 +214,7 @@ void Coroflow::_invoke_static_task(Task* tp) {
   }
 }
 
-void Coroflow::_invoke_coro_task(Task* tp) {
+void Taro::_invoke_coro_task(Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   if(!coro->done()) {
     coro->resume();
@@ -239,7 +239,7 @@ void Coroflow::_invoke_coro_task(Task* tp) {
   }
 }
 
-void Coroflow::_process(Task* tp) {
+void Taro::_process(Task* tp) {
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -254,7 +254,7 @@ void Coroflow::_process(Task* tp) {
   }
 }
 
-void Coroflow::_enqueue(Task* tp) {
+void Taro::_enqueue(Task* tp) {
   {
     std::unique_lock<std::mutex> lock(_mtx);
     _queue.push(tp);
@@ -262,4 +262,4 @@ void Coroflow::_enqueue(Task* tp) {
   _cv.notify_one();
 }
 
-} // end of namespace cf ==============================================
+} // end of namespace taro ==============================================

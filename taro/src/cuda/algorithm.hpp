@@ -1,6 +1,6 @@
 #pragma once
 
-namespace cf { // begin of namespace cf ===================================
+namespace taro { // begin of namespace taro ===================================
 
 // ============================================================================
 // row-major matrix multiplication
@@ -84,4 +84,4 @@ __global__ void cuda_transpose(
   }
 }
 
-} // end of namespace cf =========================================================
+} // end of namespace taro =========================================================

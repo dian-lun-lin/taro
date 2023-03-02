@@ -82,37 +82,37 @@ int main(int argc, char* argv[]) {
   switch(mode) {
     //case 1:
       //{
-        //GraphExecutor<cf::CoroflowV1> executor(*g_ptr, 0, num_threads, num_streams); 
+        //GraphExecutor<taro::TaroV1> executor(*g_ptr, 0, num_threads, num_streams); 
         //time_pair = executor.run();
       //}
       //break;
     //case 2:
       //{
-        //GraphExecutor<cf::CoroflowV2> executor(*g_ptr, 0, num_threads, num_streams); 
+        //GraphExecutor<taro::TaroV2> executor(*g_ptr, 0, num_threads, num_streams); 
         //time_pair = executor.run();
       //}
       //break;
     case 3:
       {
-        GraphExecutor<cf::CoroflowV3> executor(*g_ptr, 0, num_threads, num_streams); 
+        GraphExecutor<taro::TaroV3> executor(*g_ptr, 0, num_threads, num_streams); 
         time_pair = executor.run_matmul(N);
       }
       break;
     case 4:
       {
-        GraphExecutor<cf::CoroflowV4> executor(*g_ptr, 0, num_threads, num_streams); 
+        GraphExecutor<taro::TaroV4> executor(*g_ptr, 0, num_threads, num_streams); 
         time_pair = executor.run_matmul(N);
       }
       break;
     case 5:
       {
-        GraphExecutor<cf::CoroflowV5> executor(*g_ptr, 0, num_threads, num_streams); 
+        GraphExecutor<taro::TaroV5> executor(*g_ptr, 0, num_threads, num_streams); 
         time_pair = executor.run_matmul(N);
       }
       break;
     case 6:
       {
-        GraphExecutor<cf::CoroflowV6> executor(*g_ptr, 0, num_threads, num_streams); 
+        GraphExecutor<taro::TaroV6> executor(*g_ptr, 0, num_threads, num_streams); 
         time_pair = executor.run_matmul(N);
       }
       break;

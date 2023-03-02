@@ -2,18 +2,18 @@
 
 #include "base/graph_base.hpp"
 
-#include <coroflow/src/cuda/coroflow_v1.hpp>
-#include <coroflow/src/cuda/coroflow_v2.hpp>
-#include <coroflow/src/cuda/coroflow_v3.hpp>
-#include <coroflow/src/cuda/coroflow_v4.hpp>
-#include <coroflow/src/cuda/coroflow_v5.hpp>
-#include <coroflow/src/cuda/coroflow_v6.hpp>
-#include <coroflow/src/cuda/algorithm.hpp>
+#include <taro/src/cuda/taro_v1.hpp>
+#include <taro/src/cuda/taro_v2.hpp>
+#include <taro/src/cuda/taro_v3.hpp>
+#include <taro/src/cuda/taro_v4.hpp>
+#include <taro/src/cuda/taro_v5.hpp>
+#include <taro/src/cuda/taro_v6.hpp>
+#include <taro/src/cuda/algorithm.hpp>
 
 #include <chrono>
 #include <cassert>
 
-template <typename CF>
+template <typename TARO>
 class GraphExecutor {
 
   public:
@@ -33,17 +33,17 @@ class GraphExecutor {
 
 };
 
-template <typename CF>
-GraphExecutor<CF>::GraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams): 
+template <typename TARO>
+GraphExecutor<TARO>::GraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams): 
   _g{graph}, _dev_id{dev_id}, _num_threads{num_threads}, _num_streams{num_streams} {
 }
 
-template <typename CF>
-std::pair<double, double> GraphExecutor<CF>::run_matmul(size_t N) {
+template <typename TARO>
+std::pair<double, double> GraphExecutor<TARO>::run_matmul(size_t N) {
 
   auto constr_tic = std::chrono::steady_clock::now();
 
-  CF cf{_num_threads, _num_streams};
+  TARO taro{_num_threads, _num_streams};
 
   size_t cnt{0};
 
@@ -51,7 +51,7 @@ std::pair<double, double> GraphExecutor<CF>::run_matmul(size_t N) {
   dim3 dim_grid((N - 1) / BLOCK_SIZE + 1, (N - 1) / BLOCK_SIZE + 1, 1);
   dim3 dim_block(BLOCK_SIZE, BLOCK_SIZE, 1);
 
-  std::vector<std::vector<std::vector<cf::TaskHandle>>> tasks;
+  std::vector<std::vector<std::vector<taro::TaskHandle>>> tasks;
   tasks.resize(_g.get_graph().size());
 
   std::vector<int*> d_a(_g.num_nodes()), d_b(_g.num_nodes()), d_res(_g.num_nodes());
@@ -64,7 +64,7 @@ std::pair<double, double> GraphExecutor<CF>::run_matmul(size_t N) {
     for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
       tasks[l][i].resize(4);
 
-      tasks[l][i][0] = cf.emplace([&d_a, &cf, this, cnt, N]() -> cf::Coro {
+      tasks[l][i][0] = taro.emplace([&d_a, &taro, this, cnt, N]() -> taro::Coro {
 
         // TODO: seems like there is a bug in NVCC
         // When I declare two vectors and use co_await, compilation will got aborted.
@@ -78,7 +78,7 @@ std::pair<double, double> GraphExecutor<CF>::run_matmul(size_t N) {
         std::iota(h_a.begin(), h_a.end(), 0);
 
         // GPU 
-        co_await cf.cuda_suspend(
+        co_await taro.cuda_suspend(
           [&h_a, this, &d_a, cnt, N](cudaStream_t st) mutable {
           // memory allocation
           cudaMallocAsync(&d_a[cnt], N * N * sizeof(int), st);
@@ -87,7 +87,7 @@ std::pair<double, double> GraphExecutor<CF>::run_matmul(size_t N) {
         });
       });
 
-      tasks[l][i][1] =  cf.emplace([&d_b, &cf, this, cnt, N]() -> cf::Coro {
+      tasks[l][i][1] =  taro.emplace([&d_b, &taro, this, cnt, N]() -> taro::Coro {
 
         // CPU
         std::vector<int> h_b(N * N);
@@ -95,7 +95,7 @@ std::pair<double, double> GraphExecutor<CF>::run_matmul(size_t N) {
         std::iota(h_b.begin(), h_b.end(), 0);
         
         // GPU 
-        co_await cf.cuda_suspend(
+        co_await taro.cuda_suspend(
           [&h_b, &d_b, this, cnt, N](cudaStream_t st) mutable {
           // memory allocation
           cudaMallocAsync(&d_b[cnt], N * N *  sizeof(int), st);
@@ -104,25 +104,25 @@ std::pair<double, double> GraphExecutor<CF>::run_matmul(size_t N) {
         });
       });
 
-      tasks[l][i][2] =  cf.emplace([&d_res, &h_res, &cf, this, cnt, N]() -> cf::Coro {
+      tasks[l][i][2] =  taro.emplace([&d_res, &h_res, &taro, this, cnt, N]() -> taro::Coro {
         // CPU
         h_res.emplace_back(std::vector<int>(N * N));
 
         // GPU 
-        co_await cf.cuda_suspend(
+        co_await taro.cuda_suspend(
           [&d_res, this, cnt, N](cudaStream_t st) mutable {
           // memory allocation
           cudaMallocAsync(&d_res[cnt], N * N *  sizeof(int), st);
         });
       });
 
-      tasks[l][i][3] =  cf.emplace([&d_a, &d_b, &d_res, &h_res, &cf, this, cnt, N, l, i, dim_grid, dim_block]() -> cf::Coro {
+      tasks[l][i][3] =  taro.emplace([&d_a, &d_b, &d_res, &h_res, &taro, this, cnt, N, l, i, dim_grid, dim_block]() -> taro::Coro {
 
         // GPU work c
-        co_await cf.cuda_suspend(
+        co_await taro.cuda_suspend(
           [&d_a, &d_b, &d_res, &h_res, this, cnt, N, dim_grid, dim_block](cudaStream_t st) {
           // matrix multiplication
-          cf::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(d_a[cnt], d_b[cnt], d_res[cnt], N, N, N);
+          taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(d_a[cnt], d_b[cnt], d_res[cnt], N, N, N);
           // D2H
           cudaMemcpyAsync(h_res[cnt].data(), d_res[cnt], N * N * sizeof(int), cudaMemcpyDeviceToHost, st);
           // free
@@ -160,8 +160,8 @@ std::pair<double, double> GraphExecutor<CF>::run_matmul(size_t N) {
 
   auto exec_tic = std::chrono::steady_clock::now();
 
-  cf.schedule();
-  cf.wait();
+  taro.schedule();
+  taro.wait();
 
   auto exec_toc = std::chrono::steady_clock::now();
 
