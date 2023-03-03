@@ -8,6 +8,7 @@
 #include <taro/src/cuda/taro_v4.hpp>
 #include <taro/src/cuda/taro_v5.hpp>
 #include <taro/src/cuda/taro_v6.hpp>
+#include <taro/src/cuda/taro_v7.hpp>
 #include <taro/src/cuda/algorithm.hpp>
 
 #include <chrono>
@@ -56,7 +57,7 @@ std::pair<double, double> GraphExecutor<TARO>::run_matmul(size_t N) {
 
   std::vector<int*> d_a(_g.num_nodes()), d_b(_g.num_nodes()), d_res(_g.num_nodes());
   std::vector<std::vector<int>> h_res;
-  h_res.reserve(_g.num_nodes());
+  h_res.resize(_g.num_nodes(), std::vector<int>(N * N));
 
   for(size_t l = 0; l < _g.get_graph().size(); ++l) {
     tasks[l].resize((_g.get_graph())[l].size());
@@ -106,7 +107,7 @@ std::pair<double, double> GraphExecutor<TARO>::run_matmul(size_t N) {
 
       tasks[l][i][2] =  taro.emplace([&d_res, &h_res, &taro, this, cnt, N]() -> taro::Coro {
         // CPU
-        h_res.emplace_back(std::vector<int>(N * N));
+        //h_res.emplace_back(std::vector<int>(N * N));
 
         // GPU 
         co_await taro.cuda_suspend(
@@ -132,7 +133,7 @@ std::pair<double, double> GraphExecutor<TARO>::run_matmul(size_t N) {
         });
 
         // CPU work
-        h_res[cnt].clear();
+        //h_res[cnt].clear();
         //bool* v = _g.at(l, i).visited;
         //*v = true;
 

@@ -128,7 +128,6 @@ void CUDART_CB _cuda_stream_callback_v5(void* void_args) {
   auto* cf = data->cf;
   auto* prom = data->prom;
   auto stream_id = data->stream_id;
-  printf("hi from id:%p\n", std::this_thread::get_id());
   
   {
     std::scoped_lock lock(cf->_stream_mtx);

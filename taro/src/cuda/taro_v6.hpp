@@ -135,7 +135,6 @@ void CUDART_CB _cuda_stream_callback_v6(void* void_args) {
   auto* prom = data->prom;
   auto stream_id = data->stream_id;
 
-  printf("hi from id:%p\n", std::this_thread::get_id());
   cf->_enqueue(cf->_tasks[prom->_id].get());
   cf->_notifier.notify(false);
   {

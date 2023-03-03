@@ -1,5 +1,6 @@
 #include "graph.hpp"
 #include "graph_executor.hpp"
+#include "cudaflow_graph_executor.hpp"
 
 #include <3rd-party/CLI11/CLI11.hpp>
 
@@ -20,7 +21,8 @@ int main(int argc, char* argv[]) {
   app.add_option(
     "-m, --mode", 
     mode, 
-    "select version(1, 2, 3, ..., 6), default is 6"
+    "select version(1, 2, 3, ..., 7), default is 7",
+    "0: cudaFlow"
   );
 
   size_t N{1024};
@@ -80,10 +82,15 @@ int main(int argc, char* argv[]) {
 
   std::pair<double, double> time_pair;
   switch(mode) {
+    case 0:
+      {
+        cudaFlowGraphExecutor executor(*g_ptr, 0, num_threads, num_streams);
+        time_pair = executor.run_matmul(N);
+      }
+      break;
     //case 1:
       //{
         //GraphExecutor<taro::TaroV1> executor(*g_ptr, 0, num_threads, num_streams); 
-        //time_pair = executor.run();
       //}
       //break;
     //case 2:
@@ -116,6 +123,15 @@ int main(int argc, char* argv[]) {
         time_pair = executor.run_matmul(N);
       }
       break;
+    case 7:
+      {
+        GraphExecutor<taro::TaroV7> executor(*g_ptr, 0, num_threads, num_streams); 
+        time_pair = executor.run_matmul(N);
+      }
+      break;
+
+    default:
+      assert(false);
   }
 
   std::cout << "Construction time: " 
