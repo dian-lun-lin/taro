@@ -17,6 +17,13 @@ int main(int argc, char* argv[]) {
     "select graph(SerialGraph, ParallelGraph, Tree, RandomDAG, MapReduce), default is SerialGraph" 
   );
 
+  std::string job{"cudaflow_reduce"};
+  app.add_option(
+    "-j, --job",
+    job,
+    "select job(matmul, cudaflow_reduce), default is cudaflow_reduce"
+  );
+
   int mode{6};
   app.add_option(
     "-m, --mode", 
@@ -85,7 +92,7 @@ int main(int argc, char* argv[]) {
     case 0:
       {
         cudaFlowGraphExecutor executor(*g_ptr, 0, num_threads, num_streams);
-        time_pair = executor.run_matmul(N);
+        time_pair = executor.run(N, job);
       }
       break;
     //case 1:
@@ -102,31 +109,31 @@ int main(int argc, char* argv[]) {
     case 3:
       {
         GraphExecutor<taro::TaroV3> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run_matmul(N);
+        time_pair = executor.run(N, job);
       }
       break;
     case 4:
       {
         GraphExecutor<taro::TaroV4> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run_matmul(N);
+        time_pair = executor.run(N, job);
       }
       break;
     case 5:
       {
         GraphExecutor<taro::TaroV5> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run_matmul(N);
+        time_pair = executor.run(N, job);
       }
       break;
     case 6:
       {
         GraphExecutor<taro::TaroV6> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run_matmul(N);
+        time_pair = executor.run(N, job);
       }
       break;
     case 7:
       {
         GraphExecutor<taro::TaroV7> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run_matmul(N);
+        time_pair = executor.run(N, job);
       }
       break;
 
