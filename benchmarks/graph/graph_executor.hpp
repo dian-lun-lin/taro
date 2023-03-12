@@ -14,22 +14,40 @@
 #include <taro/src/cuda/taro_v5.hpp>
 #include <taro/src/cuda/taro_v6.hpp>
 #include <taro/src/cuda/taro_v7.hpp>
+#include <taro/src/cuda/taro_v8.hpp>
 #include <taro/src/cuda/algorithm.hpp>
 #include "../taskflow/taskflow/cuda/algorithm/reduce.hpp"
 
 #include <chrono>
 #include <cassert>
 
+// GPU sleep kernel
+__global__ void cuda_sleep(
+   int ms
+) {
+  for (int i = 0; i < ms; i++) {
+    __nanosleep(1000000U);
+  }
+}
+
+// CPU task
+void cpu_sleep(
+  int ms
+) {
+  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
+
 template <typename TARO>
 class GraphExecutor {
 
   public:
   
-    GraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams);
+    GraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams = 0);
 
     std::pair<double, double> run(size_t N, std::string job);
     std::pair<double, double> run_matmul(size_t N);
     std::pair<double, double> run_cudaflow_reduce(size_t N);
+    std::pair<double, double> run_sleep();
 
   private:
     
@@ -54,6 +72,9 @@ std::pair<double, double> GraphExecutor<TARO>::run(size_t N, std::string job) {
   }
   else if(job == "cudaflow_reduce") {
     dur =  run_cudaflow_reduce(N);
+  }
+  else if(job == "sleep") {
+    dur =  run_sleep();
   }
   else {
     assert(false);
@@ -162,9 +183,9 @@ std::pair<double, double> GraphExecutor<TARO>::run_matmul(size_t N) {
 
       });
 
-      tasks[l][i][0].succeed(tasks[l][i][3]);
-      tasks[l][i][1].succeed(tasks[l][i][3]);
-      tasks[l][i][2].succeed(tasks[l][i][3]);
+      tasks[l][i][0].precede(tasks[l][i][3]);
+      tasks[l][i][1].precede(tasks[l][i][3]);
+      tasks[l][i][2].precede(tasks[l][i][3]);
       ++cnt;
     }
   }
@@ -173,9 +194,9 @@ std::pair<double, double> GraphExecutor<TARO>::run_matmul(size_t N) {
   for(size_t l = 0; l < _g.get_graph().size() - 1; ++l) {
     for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
       for(auto&& out_node: _g.at(l, i).out_nodes) {
-        tasks[l][i][3].succeed(tasks[l + 1][out_node][0]);
-        tasks[l][i][3].succeed(tasks[l + 1][out_node][1]);
-        tasks[l][i][3].succeed(tasks[l + 1][out_node][2]);
+        tasks[l][i][3].precede(tasks[l + 1][out_node][0]);
+        tasks[l][i][3].precede(tasks[l + 1][out_node][1]);
+        tasks[l][i][3].precede(tasks[l + 1][out_node][2]);
       }
     }
   }
@@ -257,6 +278,8 @@ std::pair<double, double> GraphExecutor<TARO>::run_cudaflow_reduce(size_t N) {
   
           // D2H
           cudaMemcpyAsync(d2h_res.data() + cnt, d_res[cnt], sizeof(int), cudaMemcpyDeviceToHost, st);
+
+          cuda_sleep<<<1, 1, 0, st>>>(5);
         });
       });
         
@@ -270,10 +293,10 @@ std::pair<double, double> GraphExecutor<TARO>::run_cudaflow_reduce(size_t N) {
         assert(h_res[cnt] == d2h_res[cnt]);
       });
 
-      tasks[l][i][0].succeed(tasks[l][i][1]);
-      tasks[l][i][0].succeed(tasks[l][i][2]);
-      tasks[l][i][1].succeed(tasks[l][i][3]);
-      tasks[l][i][2].succeed(tasks[l][i][3]);
+      tasks[l][i][0].precede(tasks[l][i][1]);
+      tasks[l][i][0].precede(tasks[l][i][2]);
+      tasks[l][i][1].precede(tasks[l][i][3]);
+      tasks[l][i][2].precede(tasks[l][i][3]);
       ++cnt;
     }
   }
@@ -282,9 +305,9 @@ std::pair<double, double> GraphExecutor<TARO>::run_cudaflow_reduce(size_t N) {
   for(size_t l = 0; l < _g.get_graph().size() - 1; ++l) {
     for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
       for(auto&& out_node: _g.at(l, i).out_nodes) {
-        tasks[l][i][3].succeed(tasks[l + 1][out_node][0]);
-        //tasks[l][i][3].succeed(tasks[l + 1][out_node][1]);
-        //tasks[l][i][3].succeed(tasks[l + 1][out_node][2]);
+        tasks[l][i][3].precede(tasks[l + 1][out_node][0]);
+        //tasks[l][i][3].precede(tasks[l + 1][out_node][1]);
+        //tasks[l][i][3].precede(tasks[l + 1][out_node][2]);
       }
     }
   }
@@ -311,5 +334,78 @@ std::pair<double, double> GraphExecutor<TARO>::run_cudaflow_reduce(size_t N) {
 
   return {constr_dur, exec_dur};
 
+}
+
+template <typename TARO>
+std::pair<double, double> GraphExecutor<TARO>::run_sleep() {
+  auto constr_tic = std::chrono::steady_clock::now();
+
+  TARO taro{_num_threads, _num_streams};
+
+  size_t cnt{0};
+
+  std::vector<std::vector<std::vector<taro::TaskHandle>>> tasks;
+  tasks.resize(_g.get_graph().size());
+  for(size_t l = 0; l < _g.get_graph().size(); ++l) {
+    tasks[l].resize((_g.get_graph())[l].size());
+    for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
+      tasks[l][i].resize(4);
+
+      // initialization
+      tasks[l][i][0] = taro.emplace([=]() mutable {
+        cpu_sleep(2);
+      });
+
+      // GPU computing
+      tasks[l][i][1] = taro.emplace([&taro]() mutable -> taro::Coro {
+        co_await taro.cuda_suspend([=](cudaStream_t st) mutable {
+          cuda_sleep<<<8, 256, 0, st>>>(40);
+        });
+      });
+        
+      // CPU computing
+      tasks[l][i][2] =  taro.emplace([=]() mutable {
+        cpu_sleep(1);
+      });
+
+      // check result and free
+      tasks[l][i][3] =  taro.emplace([=]() mutable  {
+        cpu_sleep(1);
+      });
+
+      tasks[l][i][0].precede(tasks[l][i][1]);
+      tasks[l][i][0].precede(tasks[l][i][2]);
+      tasks[l][i][1].precede(tasks[l][i][3]);
+      tasks[l][i][2].precede(tasks[l][i][3]);
+      ++cnt;
+    }
+  }
+
+  //connection
+  for(size_t l = 0; l < _g.get_graph().size() - 1; ++l) {
+    for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
+      for(auto&& out_node: _g.at(l, i).out_nodes) {
+        tasks[l][i][3].precede(tasks[l + 1][out_node][0]);
+        //tasks[l][i][3].precede(tasks[l + 1][out_node][1]);
+        //tasks[l][i][3].precede(tasks[l + 1][out_node][2]);
+      }
+    }
+  }
+  auto constr_toc = std::chrono::steady_clock::now();
+
+  auto exec_tic = std::chrono::steady_clock::now();
+
+  taro.schedule();
+  taro.wait();
+
+  auto exec_toc = std::chrono::steady_clock::now();
+
+  //assert(_g.traversed());
+
+  auto constr_dur = std::chrono::duration_cast<std::chrono::milliseconds>(constr_toc - constr_tic).count();
+
+  auto exec_dur = std::chrono::duration_cast<std::chrono::milliseconds>(exec_toc - exec_tic).count();
+
+  return {constr_dur, exec_dur};
 }
 

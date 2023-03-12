@@ -48,14 +48,18 @@ class Worker {
   friend class TaroV5;
   friend class TaroV6;
   friend class TaroV7;
+  friend class TaroV8;
 
   public:
 
   private:
 
     WorkStealingQueue<Task*> _que;
-    //WorkStealingQueue<std::function<void(cudaWorker&)>*> _gque;
+    
+    // for v8
+    WorkStealingQueue<cudaStream_t> _sque;
 
+    // for v7
     std::vector<cudaWorker> _gws;
 
     Notifier::Waiter* _waiter;

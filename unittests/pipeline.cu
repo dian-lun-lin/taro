@@ -57,14 +57,14 @@ void pipeline(size_t num_pipes, size_t num_lines) {
   // vertical
   for(size_t l = 0; l < num_lines - 1; ++l) {
     for(size_t p = 0; p < num_pipes; ++p) {
-      pl[l * num_pipes + p].succeed(pl[(l + 1) * num_pipes]);
+      pl[l * num_pipes + p].precede(pl[(l + 1) * num_pipes]);
     }
   }
 
   // horizontal
   for(size_t l = 0; l < num_lines; ++l) {
     for(size_t p = 0; p < num_pipes - 1; ++p) {
-      pl[l * num_pipes + p].succeed(pl[l * num_pipes + p + 1]);
+      pl[l * num_pipes + p].precede(pl[l * num_pipes + p + 1]);
     }
   }
 
@@ -122,14 +122,14 @@ int main() {
   //// vertical
   //for(size_t l = 0; l < num_lines - 1; ++l) {
     //for(size_t p = 0; p < num_pipes; ++p) {
-      //pl[l * num_pipes + p].succeed(pl[(l + 1) * num_pipes + p]);
+      //pl[l * num_pipes + p].precede(pl[(l + 1) * num_pipes + p]);
     //}
   //}
 
   //// horizontal
   //for(size_t l = 0; l < num_lines; ++l) {
     //for(size_t p = 0; p < num_pipes - 1; ++p) {
-      //pl[l * num_pipes + p].succeed(pl[l * num_pipes + p + 1]);
+      //pl[l * num_pipes + p].precede(pl[l * num_pipes + p + 1]);
     //}
   //}
 
@@ -278,13 +278,13 @@ int main() {
   //// dependencies
   //// vertical
   //for(size_t l = 0; l < num_lines - 1; ++l) {
-    //pl[l * num_pipes].succeed(pl[(l + 1) * num_pipes]);
+    //pl[l * num_pipes].precede(pl[(l + 1) * num_pipes]);
   //}
 
   //// horizontal
   //for(size_t l = 0; l < num_lines; ++l) {
     //for(size_t p = 0; p < num_pipes - 1; ++p) {
-      //pl[l * num_pipes + p].succeed(pl[l * num_pipes + p + 1]);
+      //pl[l * num_pipes + p].precede(pl[l * num_pipes + p + 1]);
     //}
   //}
 

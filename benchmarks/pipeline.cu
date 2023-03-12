@@ -131,7 +131,7 @@ void pipeline_coro(size_t num_threads, size_t chain_size, size_t num_pipes, size
   // vertical
   for(size_t l = 0; l < num_lines - 1; ++l) {
     //for(size_t p = 0; p < num_pipes; ++p) {
-    pl[l][0].succeed(pl[l + 1][0]);
+    pl[l][0].precede(pl[l + 1][0]);
     //}
   }
 
@@ -139,7 +139,7 @@ void pipeline_coro(size_t num_threads, size_t chain_size, size_t num_pipes, size
   // horizontal
   for(size_t l = 0; l < num_lines; ++l) {
     for(size_t p = 0; p < num_pipes - 1; ++p) {
-      pl[l][p].succeed(pl[l][p + 1]);
+      pl[l][p].precede(pl[l][p + 1]);
     }
   }
 
@@ -209,7 +209,7 @@ void pipeline_task(size_t num_threads, size_t chain_size, size_t num_pipes, size
   // vertical
   for(size_t l = 0; l < num_lines - 1; ++l) {
     //for(size_t p = 0; p < num_pipes; ++p) {
-    pl[l][0].succeed(pl[l + 1][0]);
+    pl[l][0].precede(pl[l + 1][0]);
     //}
   }
 
@@ -217,7 +217,7 @@ void pipeline_task(size_t num_threads, size_t chain_size, size_t num_pipes, size
   // horizontal
   for(size_t l = 0; l < num_lines; ++l) {
     for(size_t p = 0; p < num_pipes - 1; ++p) {
-      pl[l][p].succeed(pl[l][p + 1]);
+      pl[l][p].precede(pl[l][p + 1]);
     }
   }
 

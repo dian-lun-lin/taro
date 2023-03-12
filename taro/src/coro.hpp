@@ -18,6 +18,7 @@ struct Coro { // Coroutine needs to be struct
   friend class TaroV5;
   friend class TaroV6;
   friend class TaroV7;
+  friend class TaroV8;
   friend class Task;
 
   public:

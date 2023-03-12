@@ -332,19 +332,21 @@ std::pair<double, double> cudaFlowGraphExecutor::run_cudaflow_reduce2(size_t N) 
         tasks[l][i][1] = cf.capture([&, cnt, N](tf::cudaFlowCapturer& cap) {
           cap.on([&, cnt, N](cudaStream_t st) mutable {
 
-          cudaMemcpyAsync(d_input[cnt], h_input[cnt].data(), N * sizeof(int), cudaMemcpyHostToDevice, st);
+            cudaMemcpyAsync(d_input[cnt], h_input[cnt].data(), N * sizeof(int), cudaMemcpyHostToDevice, st);
 
-          tf::cudaExecutionPolicy<512, 8> policy(st);
-          auto bytes  = tf::cuda_reduce_buffer_size<decltype(policy), int>(N);
-          std::byte* buffer;
-          cudaMallocAsync(&buffer, bytes * sizeof(std::byte), st);
+            tf::cudaExecutionPolicy<512, 8> policy(st);
+            auto bytes  = tf::cuda_reduce_buffer_size<decltype(policy), int>(N);
+            std::byte* buffer;
+            cudaMallocAsync(&buffer, bytes * sizeof(std::byte), st);
 
-          tf::cuda_reduce(policy,
-            d_input[cnt], d_input[cnt] + N, d_res[cnt], [] __device__ (int a, int b) { return a + b; }, buffer
-          );
+            tf::cuda_reduce(policy,
+              d_input[cnt], d_input[cnt] + N, d_res[cnt], [] __device__ (int a, int b) { return a + b; }, buffer
+            );
 
-          cudaFreeAsync(buffer, st);
-          cudaMemcpyAsync(d2h_res.data() + cnt, d_res[cnt], sizeof(int), cudaMemcpyDeviceToHost, st);
+            cudaFreeAsync(buffer, st);
+            cudaMemcpyAsync(d2h_res.data() + cnt, d_res[cnt], sizeof(int), cudaMemcpyDeviceToHost, st);
+            
+            cuda_sleep<<<1, 1, 0, st>>>(5);
           });
         });
 

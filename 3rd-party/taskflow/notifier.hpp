@@ -68,6 +68,7 @@ class Notifier {
   friend class TaroV5;
   friend class TaroV6;
   friend class TaroV7;
+  friend class TaroV8;
 
   public:
 

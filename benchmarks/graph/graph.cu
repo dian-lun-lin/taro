@@ -21,22 +21,21 @@ int main(int argc, char* argv[]) {
   app.add_option(
     "-j, --job",
     job,
-    "select job(matmul, cudaflow_reduce), default is cudaflow_reduce"
+    "select job(matmul, cudaflow_reduce, sleep), default is cudaflow_reduce"
   );
 
-  int mode{6};
+  int mode{8};
   app.add_option(
     "-m, --mode", 
     mode, 
-    "select version(1, 2, 3, ..., 7), default is 7",
-    "0: cudaFlow"
+    "select version(1, 2, 3, ..., 7, 8), default is 8. 0: cudaFlow"
   );
 
   size_t N{1024};
   app.add_option(
-    "-n, --matrix_size", 
+    "-n, --problem_size", 
     N, 
-    "set matrix size NxN"
+    "set problem size. ignore this arg if using sleep job"
   );
 
   std::vector<int> args;
@@ -57,7 +56,7 @@ int main(int argc, char* argv[]) {
   app.add_option(
     "-s, --num_streams",
     num_streams,
-    "number of streams"
+    "number of streams to run. ignore this arg if using v1, v2, or v8"
   );
 
   CLI11_PARSE(app, argc, argv);
@@ -97,13 +96,14 @@ int main(int argc, char* argv[]) {
       break;
     //case 1:
       //{
-        //GraphExecutor<taro::TaroV1> executor(*g_ptr, 0, num_threads, num_streams); 
+        //GraphExecutor<taro::TaroV1> executor(*g_ptr, 0, num_threads); 
+        //time_pair = executor.run(N, job);
       //}
       //break;
     //case 2:
       //{
-        //GraphExecutor<taro::TaroV2> executor(*g_ptr, 0, num_threads, num_streams); 
-        //time_pair = executor.run();
+        //GraphExecutor<taro::TaroV2> executor(*g_ptr, 0, num_threads); 
+        //time_pair = executor.run(N, job);
       //}
       //break;
     case 3:
@@ -133,6 +133,12 @@ int main(int argc, char* argv[]) {
     case 7:
       {
         GraphExecutor<taro::TaroV7> executor(*g_ptr, 0, num_threads, num_streams); 
+        time_pair = executor.run(N, job);
+      }
+      break;
+    case 8:
+      {
+        GraphExecutor<taro::TaroV8> executor(*g_ptr, 0, num_threads); 
         time_pair = executor.run(N, job);
       }
       break;

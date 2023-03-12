@@ -48,8 +48,8 @@ void map_reduce_v1(size_t num_iters, size_t num_parallel_tasks, size_t num_threa
         buf[t] += data[t];
       });
 
-      src_t.succeed(map_t);
-      map_t.succeed(reduce_t);
+      src_t.precede(map_t);
+      map_t.precede(reduce_t);
     }
 
     src_t = reduce_t;
@@ -147,8 +147,8 @@ void map_reduce_v2(size_t num_iters, size_t num_parallel_tasks, size_t num_threa
         buf[t] += data[t];
       });
 
-      src_t.succeed(map_t);
-      map_t.succeed(reduce_t);
+      src_t.precede(map_t);
+      map_t.precede(reduce_t);
     }
 
     src_t = reduce_t;
@@ -246,8 +246,8 @@ void map_reduce_v3(size_t num_iters, size_t num_parallel_tasks, size_t num_threa
         buf[t] += data[t];
       });
 
-      src_t.succeed(map_t);
-      map_t.succeed(reduce_t);
+      src_t.precede(map_t);
+      map_t.precede(reduce_t);
     }
 
     src_t = reduce_t;

@@ -24,7 +24,7 @@ void linear_chain(size_t num_tasks, size_t num_threads) {
   }
 
   for(size_t t = 0; t < num_tasks - 1; ++t) {
-    _tasks[t].succeed(_tasks[t + 1]);
+    _tasks[t].precede(_tasks[t + 1]);
   }
 
   REQUIRE(cf.is_DAG());
@@ -102,8 +102,8 @@ void map_reduce(size_t num_iters, size_t num_parallel_tasks, size_t num_threads)
         buf[t] += data[t];
       });
 
-      src_t.succeed(map_t);
-      map_t.succeed(reduce_t);
+      src_t.precede(map_t);
+      map_t.precede(reduce_t);
     }
 
     src_t = reduce_t;
@@ -207,14 +207,14 @@ void spipeline(size_t num_pipes, size_t num_lines, size_t num_threads) {
   // vertical
   for(size_t l = 0; l < num_lines - 1; ++l) {
     for(size_t p = 0; p < num_pipes; ++p) {
-      pl[l * num_pipes + p].succeed(pl[(l + 1) * num_pipes + p]);
+      pl[l * num_pipes + p].precede(pl[(l + 1) * num_pipes + p]);
     }
   }
 
   // horizontal
   for(size_t l = 0; l < num_lines; ++l) {
     for(size_t p = 0; p < num_pipes - 1; ++p) {
-      pl[l * num_pipes + p].succeed(pl[l * num_pipes + p + 1]);
+      pl[l * num_pipes + p].precede(pl[l * num_pipes + p + 1]);
     }
   }
 
@@ -363,13 +363,13 @@ void ppipeline(size_t num_pipes, size_t num_lines, size_t num_threads) {
   // dependencies
   // vertical
   for(size_t l = 0; l < num_lines - 1; ++l) {
-    pl[l * num_pipes].succeed(pl[(l + 1) * num_pipes]);
+    pl[l * num_pipes].precede(pl[(l + 1) * num_pipes]);
   }
 
   // horizontal
   for(size_t l = 0; l < num_lines; ++l) {
     for(size_t p = 0; p < num_pipes - 1; ++p) {
-      pl[l * num_pipes + p].succeed(pl[l * num_pipes + p + 1]);
+      pl[l * num_pipes + p].precede(pl[l * num_pipes + p + 1]);
     }
   }
 

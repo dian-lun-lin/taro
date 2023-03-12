@@ -57,6 +57,7 @@ class Task {
   friend class TaroV5;
   friend class TaroV6;
   friend class TaroV7;
+  friend class TaroV8;
   friend class TaskHandle;
 
   struct CoroTask {
@@ -156,9 +157,9 @@ Task::Task(size_t id, Args&&... args):_id{id}, _handle{std::forward<Args>(args).
 }
 
 void Task::_precede(Task* tp) {
-  _preds.push_back(tp);
-  tp->_succs.push_back(this);
-  _join_counter.fetch_add(1, std::memory_order_relaxed);
+  _succs.push_back(tp);
+  tp->_preds.push_back(this);
+  tp->_join_counter.fetch_add(1, std::memory_order_relaxed);
 }
 
 // ==========================================================================
