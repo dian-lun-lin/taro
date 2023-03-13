@@ -49,15 +49,10 @@ constexpr auto get_index_v = get_index<T, Ts...>::value;
 
 class Task {
 
-  friend class Taro;
-  friend class TaroV1;
-  friend class TaroV2;
-  friend class TaroV3;
-  friend class TaroV4;
-  friend class TaroV5;
-  friend class TaroV6;
-  friend class TaroV7;
-  friend class TaroV8;
+  friend class TaroCBV1;
+  friend class TaroCBV2;
+  friend class TaroCBV3;
+  friend class TaroPV1;
   friend class TaskHandle;
 
   struct CoroTask {

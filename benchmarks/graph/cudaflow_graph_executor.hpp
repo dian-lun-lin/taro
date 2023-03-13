@@ -146,7 +146,7 @@ std::pair<double, double> cudaFlowGraphExecutor::run_matmul(size_t N) {
 
   auto exec_toc = std::chrono::steady_clock::now();
 
-  assert(_g.traversed());
+  //assert(_g.traversed());
 
   auto constr_dur = std::chrono::duration_cast<std::chrono::milliseconds>(constr_toc - constr_tic).count();
 

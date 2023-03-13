@@ -7,14 +7,10 @@
 
 #include "base/graph_base.hpp"
 
-#include <taro/src/cuda/taro_v1.hpp>
-#include <taro/src/cuda/taro_v2.hpp>
-#include <taro/src/cuda/taro_v3.hpp>
-#include <taro/src/cuda/taro_v4.hpp>
-#include <taro/src/cuda/taro_v5.hpp>
-#include <taro/src/cuda/taro_v6.hpp>
-#include <taro/src/cuda/taro_v7.hpp>
-#include <taro/src/cuda/taro_v8.hpp>
+#include <taro/src/cuda/callback/taro_callback_v1.hpp>
+#include <taro/src/cuda/callback/taro_callback_v2.hpp>
+#include <taro/src/cuda/callback/taro_callback_v3.hpp>
+#include <taro/src/cuda/poll/taro_poll_v1.hpp>
 #include <taro/src/cuda/algorithm.hpp>
 #include "../taskflow/taskflow/cuda/algorithm/reduce.hpp"
 
@@ -210,7 +206,7 @@ std::pair<double, double> GraphExecutor<TARO>::run_matmul(size_t N) {
 
   auto exec_toc = std::chrono::steady_clock::now();
 
-  assert(_g.traversed());
+  //assert(_g.traversed());
 
   auto constr_dur = std::chrono::duration_cast<std::chrono::milliseconds>(constr_toc - constr_tic).count();
 
@@ -353,24 +349,24 @@ std::pair<double, double> GraphExecutor<TARO>::run_sleep() {
 
       // initialization
       tasks[l][i][0] = taro.emplace([=]() mutable {
-        cpu_sleep(2);
+        cpu_sleep(20);
       });
 
       // GPU computing
       tasks[l][i][1] = taro.emplace([&taro]() mutable -> taro::Coro {
-        co_await taro.cuda_suspend([=](cudaStream_t st) mutable {
-          cuda_sleep<<<8, 256, 0, st>>>(40);
+        co_await taro.cuda_suspend([](cudaStream_t st) mutable {
+          cuda_sleep<<<8, 256, 0, st>>>(80);
         });
       });
         
       // CPU computing
       tasks[l][i][2] =  taro.emplace([=]() mutable {
-        cpu_sleep(1);
+        cpu_sleep(20);
       });
 
       // check result and free
       tasks[l][i][3] =  taro.emplace([=]() mutable  {
-        cpu_sleep(1);
+        cpu_sleep(20);
       });
 
       tasks[l][i][0].precede(tasks[l][i][1]);

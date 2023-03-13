@@ -1,35 +1,34 @@
 #pragma once
 
-#include "../../declarations.h"
-#include "../coro.hpp"
-#include "../task.hpp"
-#include "../worker.hpp"
-#include "utility.hpp"
-#include "../../../3rd-party/taskflow/notifier.hpp"
-#include "../../../3rd-party/taskflow/wsq.hpp"
+#include "../../../declarations.h"
+#include "../../coro.hpp"
+#include "../../task.hpp"
+#include "../../worker.hpp"
+#include "../utility.hpp"
+#include "../../../../3rd-party/taskflow/notifier.hpp"
+#include "../../../../3rd-party/taskflow/wsq.hpp"
 
 namespace taro { // begin of namespace taro ===================================
 
-class TaroV5;
+class TaroCBV1;
   
+// As suggested by CUDA doc, we use cudaLaunchHostFunc rather than cudaStreamAddCallback
 // cudaStreamAddcallback
 // cudaStream is handled by Taro
 // work-stealing approach
-// As suggested by CUDA doc, we use cudaLaunchHostFunc rather than cudaStreamAddCallback
-// TODO: maybe embed CUDA GRAPH? (CUDA graph capturer)
 //
 // ==========================================================================
 //
-// Declaration of class TaroV5
+// Declaration of class TaroCBV1
 //
 // ==========================================================================
 //
 
 
-class TaroV5 {
+class TaroCBV1 {
 
-  //friend void CUDART_CB _cuda_stream_callback_v5(cudaStream_t st, cudaError_t stat, void* void_args);
-  friend void CUDART_CB _cuda_stream_callback_v5(void* void_args);
+  //friend void CUDART_CB _cuda_stream_callback_v1(cudaStream_t st, cudaError_t stat, void* void_args);
+  friend void CUDART_CB _cuda_stream_callback_v1(void* void_args);
 
   struct cudaStream {
     cudaStream_t st;
@@ -37,7 +36,7 @@ class TaroV5 {
   };
 
   struct cudaCallbackData {
-    TaroV5* cf;
+    TaroCBV1* cf;
     Coro::promise_type* prom;
     size_t stream_id;
     //size_t num_kernels;
@@ -46,9 +45,9 @@ class TaroV5 {
 
   public:
 
-    TaroV5(size_t num_threads, size_t num_streams);
+    TaroCBV1(size_t num_threads, size_t num_streams);
 
-    ~TaroV5();
+    ~TaroCBV1();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -106,6 +105,7 @@ class TaroV5 {
     std::mutex _wmtx;
     std::mutex _stream_mtx;
     std::mutex _kernel_mtx;
+    //std::mutex _nmtx;
     std::condition_variable _wcv;
 
     Notifier _notifier;
@@ -121,10 +121,10 @@ class TaroV5 {
 // ==========================================================================
 
 // cuda callback
-void CUDART_CB _cuda_stream_callback_v5(void* void_args) {
+void CUDART_CB _cuda_stream_callback_v1(void* void_args) {
 
   // unpack
-  auto* data = (TaroV5::cudaCallbackData*) void_args;
+  auto* data = (TaroCBV1::cudaCallbackData*) void_args;
   auto* cf = data->cf;
   auto* prom = data->prom;
   auto stream_id = data->stream_id;
@@ -133,17 +133,22 @@ void CUDART_CB _cuda_stream_callback_v5(void* void_args) {
     std::scoped_lock lock(cf->_stream_mtx);
     --cf->_in_stream_tasks[stream_id];
   }
+
+  // after enqueue, cf may finish the task and be destructed
+  // in that case _notifier is destructed before we call notify in the callback
+  // TODO: we need a lock in the callback and wait() to avoid the issue?
+  //std::scoped_lock(cf->_nmtx);
   cf->_enqueue(cf->_tasks[prom->_id].get());
   cf->_notifier.notify(false);
 }
 
 // ==========================================================================
 //
-// Definition of class TaroV5
+// Definition of class TaroCBV1
 //
 // ==========================================================================
 
-TaroV5::TaroV5(size_t num_threads, size_t num_streams): 
+TaroCBV1::TaroCBV1(size_t num_threads, size_t num_streams): 
   _workers{num_threads}, _notifier{num_threads}, _MAX_STEALS{(num_threads + 1) << 1} {
 
   //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
@@ -195,14 +200,14 @@ TaroV5::TaroV5(size_t num_threads, size_t num_streams):
 }
 
 // get a task from worker's own queue
-void TaroV5::_exploit_task(Worker& worker) {
+void TaroCBV1::_exploit_task(Worker& worker) {
   while(auto task = worker._que.pop()) {
     _process(worker, task.value());
   }
 }
 
 // try to steal
-Task* TaroV5::_explore_task(Worker& worker) {
+Task* TaroCBV1::_explore_task(Worker& worker) {
 
   size_t num_steals{0};
   size_t num_yields{0};
@@ -231,7 +236,7 @@ Task* TaroV5::_explore_task(Worker& worker) {
   return task;
 }
 
-bool TaroV5::_wait_for_task(Worker& worker) {
+bool TaroCBV1::_wait_for_task(Worker& worker) {
 
   Task* task{nullptr};
   explore_task:
@@ -274,22 +279,24 @@ bool TaroV5::_wait_for_task(Worker& worker) {
 }
 
 
-TaroV5::~TaroV5() {
+TaroCBV1::~TaroCBV1() {
   for(auto& st: _streams) {
     cudaStreamDestroy(st.st);
   }
 }
 
-void TaroV5::wait() {
-  for(auto& st: _streams) {
-    checkCudaError(cudaStreamSynchronize(st.st));
-  }
+void TaroCBV1::wait() {
   for(auto& t: _threads) {
     t.join();
   }
+  //for(auto& st: _streams) {
+    //checkCudaError(cudaStreamSynchronize(st.st));
+  //}
+  //checkCudaError(cudaDeviceSynchronize());
+  //std::scoped_lock lock(_nmtx);
 }
 
-void TaroV5::schedule() {
+void TaroCBV1::schedule() {
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
@@ -303,13 +310,13 @@ void TaroV5::schedule() {
 }
 
 template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
-auto TaroV5::cuda_suspend(C&& c) {
+auto TaroCBV1::cuda_suspend(C&& c) {
 
   struct awaiter: std::suspend_always {
     std::function<void(cudaStream_t)> kernel;
     cudaCallbackData data;
 
-    explicit awaiter(TaroV5* cf, C&& c): kernel{std::forward<C>(c)} {
+    explicit awaiter(TaroCBV1* cf, C&& c): kernel{std::forward<C>(c)} {
       data.cf = cf; 
     }
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
@@ -334,7 +341,7 @@ auto TaroV5::cuda_suspend(C&& c) {
       {
         std::scoped_lock lock(data.cf->_kernel_mtx);
         kernel(data.cf->_streams[stream_id].st);
-        cudaLaunchHostFunc(data.cf->_streams[stream_id].st, _cuda_stream_callback_v5, (void*)&data);
+        cudaLaunchHostFunc(data.cf->_streams[stream_id].st, _cuda_stream_callback_v1, (void*)&data);
       }
 
     }
@@ -344,10 +351,10 @@ auto TaroV5::cuda_suspend(C&& c) {
   return awaiter{this, std::forward<C>(c)};
 }
 
-auto TaroV5::suspend() {
+auto TaroCBV1::suspend() {
   struct awaiter: std::suspend_always {
-    TaroV5* _cf;
-    explicit awaiter(TaroV5* cf) noexcept : _cf{cf} {}
+    TaroCBV1* _cf;
+    explicit awaiter(TaroCBV1* cf) noexcept : _cf{cf} {}
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
       auto id = coro_handle.promise()._id;
       _cf->_enqueue(*(_cf->_this_worker()), _cf->_tasks[id].get());
@@ -359,21 +366,21 @@ auto TaroV5::suspend() {
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle TaroV5::emplace(C&& c) {
+TaskHandle TaroCBV1::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle TaroV5::emplace(C&& c) {
+TaskHandle TaroCBV1::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-bool TaroV5::is_DAG() const {
+bool TaroCBV1::is_DAG() const {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -387,24 +394,24 @@ bool TaroV5::is_DAG() const {
   return true;
 }
 
-void TaroV5::_enqueue(Worker& worker, Task* tp) {
+void TaroCBV1::_enqueue(Worker& worker, Task* tp) {
   worker._que.push(tp);
 }
 
-void TaroV5::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
+void TaroCBV1::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
   for(auto* tp: tps) {
     worker._que.push(tp);
   }
 }
 
-void TaroV5::_enqueue(Task* tp) {
+void TaroCBV1::_enqueue(Task* tp) {
   {
     std::scoped_lock lock(_qmtx);
     _que.push(tp);
   }
 }
 
-void TaroV5::_enqueue(const std::vector<Task*>& tps) {
+void TaroCBV1::_enqueue(const std::vector<Task*>& tps) {
   {
     std::scoped_lock lock(_qmtx);
     for(auto* tp: tps) {
@@ -413,7 +420,7 @@ void TaroV5::_enqueue(const std::vector<Task*>& tps) {
   }
 }
 
-void TaroV5::_process(Worker& worker, Task* tp) {
+void TaroCBV1::_process(Worker& worker, Task* tp) {
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -428,7 +435,7 @@ void TaroV5::_process(Worker& worker, Task* tp) {
   }
 }
 
-void TaroV5::_invoke_static_task(Worker& worker, Task* tp) {
+void TaroCBV1::_invoke_static_task(Worker& worker, Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -443,7 +450,7 @@ void TaroV5::_invoke_static_task(Worker& worker, Task* tp) {
   }
 }
 
-void TaroV5::_invoke_coro_task(Worker& worker, Task* tp) {
+void TaroCBV1::_invoke_coro_task(Worker& worker, Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   coro->resume();
 
@@ -463,12 +470,12 @@ void TaroV5::_invoke_coro_task(Worker& worker, Task* tp) {
   }
 }
 
-Worker* TaroV5::_this_worker() {
+Worker* TaroCBV1::_this_worker() {
   auto it = _wids.find(std::this_thread::get_id());
   return (it == _wids.end()) ? nullptr : &_workers[it->second];
 }
 
-bool TaroV5::_is_DAG(
+bool TaroCBV1::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion

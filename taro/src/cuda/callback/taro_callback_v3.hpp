@@ -1,39 +1,53 @@
 #pragma once
 
-#include "../../declarations.h"
-#include "../coro.hpp"
-#include "../task.hpp"
-#include "../worker.hpp"
-#include "utility.hpp"
-#include "../../../3rd-party/taskflow/notifier.hpp"
-#include "../../../3rd-party/taskflow/wsq.hpp"
+#include "../../../declarations.h"
+#include "../../coro.hpp"
+#include "../../task.hpp"
+#include "../../worker.hpp"
+#include "../utility.hpp"
+#include "../../../../3rd-party/taskflow/notifier.hpp"
+#include "../../../../3rd-party/taskflow/wsq.hpp"
 
 namespace taro { // begin of namespace taro ===================================
 
-class TaroV7;
+class TaroCBV3;
   
-// cudaEvent SHOULD USE cudaDisableTiming to enable best performance
-// cudaEventRecord SHOULD SPECIFY STREAM
-//
+// As suggested by CUDA doc, we use cudaLaunchHostFunc rather than cudaStreamAddCallback
+// cudaStreamAddcallback
 // cudaStream is handled by Taro
 // work-stealing approach
 //
+// "stream-stealing" approach
+// if none of existing streams is available, enqueue the task back to master que
+//
 // ==========================================================================
 //
-// Declaration of class TaroV7
+// Declaration of class TaroCBV3
 //
 // ==========================================================================
 //
 
 
-class TaroV7 {
+class TaroCBV3 {
+
+  //friend void CUDART_CB _cuda_stream_callback_v3(cudaStream_t st, cudaError_t stat, void* void_args);
+  friend void CUDART_CB _cuda_stream_callback_v3(void* void_args);
+
+  struct cudaCallbackData {
+    TaroCBV3* cf{nullptr};
+    Coro::promise_type* prom{nullptr};
+    cudaStream_t stream{nullptr};
+    Task* callback_task{nullptr};
+  };
 
 
   public:
 
-    TaroV7(size_t num_threads, size_t num_streams);
+    // num_streams here does not mean anything
+    // this arg is for ease of benchmarking
+    TaroCBV3(size_t num_threads, size_t num_streams = 0);
 
-    ~TaroV7();
+    ~TaroCBV3();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -61,24 +75,16 @@ class TaroV7 {
     void _enqueue(Worker& worker, Task* tp);
     void _enqueue(Task* tp);
     void _enqueue(const std::vector<Task*>& tps);
-    //void _cuda_enqueue(Task* tp);
 
     void _invoke_coro_task(Worker& worker, Task* tp);
     void _invoke_static_task(Worker& worker, Task* tp);
-    void _handle_cuda_task(Worker& worker, Task* tp);
 
     Worker* _this_worker();
-
-    cudaWorker* _cuda_find_worker(Worker& worker);
-    void _cuda_update_status(Worker& worker);
-    bool _cuda_commit_task(Worker& worker);
-    bool _cuda_all_available(Worker& worker);
-    //cudaWorker* _cuda_explore_task(Worker& worker);
-    
 
     void _exploit_task(Worker& worker);
     Task* _explore_task(Worker& worker);
     bool _wait_for_task(Worker& worker);
+
 
     bool _is_DAG(
       Task* tp,
@@ -86,37 +92,48 @@ class TaroV7 {
       std::vector<bool>& in_recursion
     ) const;
 
-    size_t _num_streams;
     std::vector<std::thread> _threads;
     std::vector<Worker> _workers;
     std::vector<std::unique_ptr<Task>> _tasks;
     std::unordered_map<std::thread::id, size_t> _wids;
 
     WorkStealingQueue<Task*> _que;
-    //WorkStealingQueue<Task*> _gque;
 
     std::mutex _qmtx;
-    std::mutex _gqmtx;
+    std::mutex _stream_mtx;
 
     Notifier _notifier;
     std::atomic<bool> _stop{false};
     std::atomic<size_t> _finished{0};
     size_t _MAX_STEALS;
-    size_t _CUDA_MAX_STEALS;
 };
 
 // ==========================================================================
 //
-// Definition of class TaroV7
+// callback
 //
 // ==========================================================================
 
-TaroV7::TaroV7(size_t num_threads, size_t num_streams): 
-  _workers{num_threads}, _notifier{num_threads}, 
-  _MAX_STEALS{(num_threads + 1) << 1}, _CUDA_MAX_STEALS{(num_threads + 1) << 1}, 
-  _num_streams{num_streams} 
-{
+// cuda callback
+void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
+  auto* data = (TaroCBV3::cudaCallbackData*) void_args;
+  auto* callback_task = data->callback_task;
+  auto* cf = data->cf;
 
+  cf->_enqueue(callback_task);
+  cf->_notifier.notify(false);
+}
+
+// ==========================================================================
+//
+// Definition of class TaroCBV3
+//
+// ==========================================================================
+
+TaroCBV3::TaroCBV3(size_t num_threads, size_t num_streams): 
+  _workers{num_threads}, _notifier{num_threads}, _MAX_STEALS{(num_threads + 1) << 1} {
+
+  //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
   std::mutex wmtx;
   std::condition_variable wcv;
 
@@ -132,8 +149,12 @@ TaroV7::TaroV7(size_t num_threads, size_t num_streams):
       worker._thread = &_threads[id];
       worker._waiter = &_notifier._waiters[id];
 
-      // evenly distribute cuda workers to workers
-      worker._gws.resize((num_streams - id + num_threads - 1) / num_threads);
+      // evenly distribute cuda streams to workers
+      for(size_t k = 0; k < (num_streams - id + num_threads - 1) / num_threads; ++k) {
+        cudaStream_t stream;
+        cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+        worker._sque.push(stream);
+      }
 
       {
         std::scoped_lock lock(wmtx);
@@ -148,6 +169,7 @@ TaroV7::TaroV7(size_t num_threads, size_t num_streams):
       // can we not enter into scheduling loop until we call schedule?
       while(1) {
         _exploit_task(worker);
+
         if(!_wait_for_task(worker)) {
           break;
         }
@@ -160,70 +182,15 @@ TaroV7::TaroV7(size_t num_threads, size_t num_streams):
   wcv.wait(lock, [&](){ return cnt == num_threads; });
 }
 
-//cudaWorker* TaroV7::_cuda_explore_task(Worker& worker) {
-  //auto* gw = _cuda_poll(worker);
-  //if(gw != nullptr) {
-    //auto opt = _gque.steal();
-    //if(opt) {
-      //auto* cuda_task = opt.value();
-      //_process(worker, cuda_task);
-    //}
-  //}
-
-  ////auto opt = _gque.steal();
-  ////if(opt) {
-    ////cuda_task = opt.value();
-    ////_process(worker, cuda_task);
-    //////cuda_task(*gw);
-  ////}
-  //return gw;
-//}
-
-void TaroV7::_cuda_update_status(Worker& worker) {
-  for(auto& gw: worker._gws) {
-    if(cudaStreamQuery(gw.stream) != cudaErrorNotReady && gw.status == -1)  {
-      gw.status = 0;
-    }
-  }
-}
-
-// return true if there exits a cuda worker whose status changes from 0 to 1
-bool TaroV7::_cuda_commit_task(Worker& worker) {
-  bool res{false};
-  for(auto& gw: worker._gws) {
-    if(gw.status == 0) {
-      assert(gw.cur_task != nullptr);
-      // commit task to queue
-      // previous coro finished, we need to enqueue the coro back
-      auto* tmp = gw.cur_task;
-      gw.cur_task = nullptr;
-      gw.status = 1;
-      _enqueue(worker, tmp);
-      _notifier.notify(false);
-      res = true;
-    }
-  }
-  return res;
-}
-
-cudaWorker* TaroV7::_cuda_find_worker(Worker& worker) {
-  for(auto& gw: worker._gws) {
-    if(gw.status == 1) {
-      return &gw;
-    }
-  }
-  return nullptr;
-}
-
 // get a task from worker's own queue
-void TaroV7::_exploit_task(Worker& worker) {
+void TaroCBV3::_exploit_task(Worker& worker) {
   while(auto task = worker._que.pop()) {
     _process(worker, task.value());
   }
 }
 
 // try to steal
-Task* TaroV7::_explore_task(Worker& worker) {
+Task* TaroCBV3::_explore_task(Worker& worker) {
 
   size_t num_steals{0};
   size_t num_yields{0};
@@ -252,35 +219,18 @@ Task* TaroV7::_explore_task(Worker& worker) {
   return task;
 }
 
-bool TaroV7::_cuda_all_available(Worker& worker) {
-  auto git = std::find_if(
-    worker._gws.begin(), worker._gws.end(), 
-    [](const cudaWorker& gw) { return gw.status != 1; }
-  );
-  return git == worker._gws.end() ? true : false;
-}
-
-bool TaroV7::_wait_for_task(Worker& worker) {
+bool TaroCBV3::_wait_for_task(Worker& worker) {
 
   Task* task{nullptr};
-
-
   explore_task:
     task = _explore_task(worker);
-    
 
   // TODO: why do we need to wake up another worker to avoid starvation?
   // I thought std::this_thread::yield() already did that
-  if(task != nullptr) {
+  if(task) {
     _notifier.notify(false);
     return true;
   }
-
-  cuda_update:
-    _cuda_update_status(worker);
-    if(_cuda_commit_task(worker)) {
-      return true;
-    }
   
   // ======= 2PC guard =======
   _notifier.prepare_wait(worker._waiter);
@@ -306,35 +256,27 @@ bool TaroV7::_wait_for_task(Worker& worker) {
     }
   }
 
-  _cuda_update_status(worker);
-  // a coroutine is enqueued to local queue if there exists one cuda_task that is committed
-  // return true and go back to explore
-  if(_cuda_commit_task(worker)) {
-    _notifier.cancel_wait(worker._waiter);
-    return true;
-  }
-
-  // if a cuda worker is not available (i.e., status != 1), we need to keep polling
-  if(!_cuda_all_available(worker)) {
-    _notifier.cancel_wait(worker._waiter);
-    goto cuda_update;
-  }
-
   _notifier.commit_wait(worker._waiter);
+
   goto explore_task;
 }
 
 
-TaroV7::~TaroV7() {
+TaroCBV3::~TaroCBV3() {
+  for(auto& w: _workers) {
+    while(!w._sque.empty()) {
+      checkCudaError(cudaStreamDestroy(w._sque.pop().value()));
+    }
+  }
 }
 
-void TaroV7::wait() {
+void TaroCBV3::wait() {
   for(auto& t: _threads) {
     t.join();
   }
 }
 
-void TaroV7::schedule() {
+void TaroCBV3::schedule() {
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
@@ -348,80 +290,111 @@ void TaroV7::schedule() {
 }
 
 template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
-auto TaroV7::cuda_suspend(C&& c) {
+auto TaroCBV3::cuda_suspend(C&& c) {
 
   struct awaiter: std::suspend_always {
     std::function<void(cudaStream_t)> kernel;
-    TaroV7& cf;
-    Task cuda_task;
+    cudaCallbackData data;
+    Task callback_task;
+    Task await_task;
 
-    explicit awaiter(TaroV7* cf, C&& c): cf{*cf}, kernel{std::forward<C>(c)} {}
-
-    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
-      auto tmp = Task(0, std::in_place_type_t<Task::cudaTask>{}, [coro_handle, this](cudaWorker& gw) mutable {
-        // update cur_task
-        auto id = coro_handle.promise()._id;
-        gw.cur_task = cf._tasks[id].get();
-        gw.status = -1;
-        kernel(gw.stream);
-      });
-      cuda_task = std::move(tmp);
-
-      cf._enqueue(*(cf._this_worker()), &cuda_task);
-      cf._notifier.notify(false);
+    explicit awaiter(TaroCBV3* cf, C&& c): kernel{std::forward<C>(c)} {
+      data.cf = cf; 
     }
+    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
+
+      // set callback data
+      // try to get a stream
+      auto* cf = data.cf;
+      Worker& worker = *(cf->_this_worker());
+      data.stream = _get_stream();
+
+      // if we cannot get a stream
+      // enqueue the task back 
+      if(data.stream == nullptr) {
+        await_task = Task(0, std::in_place_type_t<Task::StaticTask>{},
+          [coro_handle, this]() mutable { await_suspend(coro_handle); }
+        );
+
+        cf->_enqueue(worker, &await_task);
+        cf->_notifier.notify(false);
+      }
+      else {
+
+        // set callback task
+        // callback task is a static task
+        callback_task = Task(0, std::in_place_type_t<Task::StaticTask>{}, 
+          [coro_handle, this]() mutable {
+            auto* cf = data.cf;
+            auto* prom = data.prom;
+            cudaStream_t stream = data.stream;
+            Worker& worker = *(cf->_this_worker());
+
+            worker._sque.push(stream);
+            cf->_enqueue(worker, cf->_tasks[prom->_id].get());
+            cf->_notifier.notify(false);
+          }
+        );
+
+        data.callback_task = &callback_task;
+        data.prom = &(coro_handle.promise());
+        
+        // enqueue the kernel to the stream
+        kernel(data.stream);
+        cudaLaunchHostFunc(data.stream, _cuda_stream_callback_v3, (void*)&data);
+      }
+    }
+
+    private:
+
+      cudaStream_t _get_stream() {
+
+        auto* cf = data.cf;
+        Worker& worker = *(cf->_this_worker());
+
+        // get an empty stream from worker's own sque
+        auto opt = worker._sque.pop();
+        if(opt) {
+          return opt.value();
+        }
+
+        // try to steal an empty stream from other workers
+        cudaStream_t stream{nullptr};
+        size_t num_steals{0};
+        size_t num_yields{0};
+        std::uniform_int_distribution<size_t> rdvtm(0, cf->_workers.size() - 1);
+
+        do {
+          size_t vtm = rdvtm(worker._rdgen);
+
+          if(worker._id == vtm) { continue; }
+
+          auto opt = cf->_workers[vtm]._sque.steal();
+
+          if(opt) {
+            stream = opt.value();
+            break;
+          }
+
+          if(num_steals++ > cf->_MAX_STEALS) {
+            std::this_thread::yield();
+            if(num_yields++ > 10) {
+              break;
+            }
+          }
+        } while(!cf->_stop);
+
+        return stream;
+      }
   };
+
   return awaiter{this, std::forward<C>(c)};
 }
 
-////void TaroV7::_cuda_update(Worker& worker) {
-////}
-
-//void TaroV7::_cuda_exploit_task(Worker& worker, cudaWorker& gw, bool& assigned) {
-  //if(!assigned) {
-    //if(!worker._gque.empty()) {
-      //// exploit
-      //// get a new cuda task from queue
-      //auto opt = worker._gque.pop();
-      //auto cuda_task = *(opt.value());
-      
-      //cuda_task(gw);
-      //assigned = true;
-    //}
-  //}
-//}
-
-//// try to steal from other workers
-//void TaroV7::_cuda_explore_task(Worker& worker, cudaWorker& gw, bool& assigned) {
-  //if(!assigned) {
-    //size_t num_steals{0};
-    //size_t num_yields{0};
-    //std::uniform_int_distribution<size_t> rdvtm(0, _workers.size() - 1);
-    //while(true) {
-      //size_t vtm = rdvtm(worker._rdgen);
-      //if(worker._id != vtm) {
-        //auto opt = _workers[vtm]._gque.steal();
-        //if(opt) {
-          //auto cuda_task = *(opt.value());
-          //cuda_task(gw);
-          //assigned = true;
-          //break;
-        //}
-      //}
-      //if(num_steals++ > _CUDA_MAX_STEALS) {
-        //std::this_thread::yield();
-        //if(num_yields++ > 100) {
-          //break;
-        //}
-      //}
-    //}
-  //}
-//}
-
-auto TaroV7::suspend() {
+auto TaroCBV3::suspend() {
   struct awaiter: std::suspend_always {
-    TaroV7* _cf;
-    explicit awaiter(TaroV7* cf) noexcept : _cf{cf} {}
+    TaroCBV3* _cf;
+    explicit awaiter(TaroCBV3* cf) noexcept : _cf{cf} {}
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
       auto id = coro_handle.promise()._id;
       _cf->_enqueue(*(_cf->_this_worker()), _cf->_tasks[id].get());
@@ -433,21 +406,21 @@ auto TaroV7::suspend() {
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle TaroV7::emplace(C&& c) {
+TaskHandle TaroCBV3::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle TaroV7::emplace(C&& c) {
+TaskHandle TaroCBV3::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-bool TaroV7::is_DAG() const {
+bool TaroCBV3::is_DAG() const {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -461,24 +434,24 @@ bool TaroV7::is_DAG() const {
   return true;
 }
 
-void TaroV7::_enqueue(Worker& worker, Task* tp) {
+void TaroCBV3::_enqueue(Worker& worker, Task* tp) {
   worker._que.push(tp);
 }
 
-void TaroV7::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
+void TaroCBV3::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
   for(auto* tp: tps) {
     worker._que.push(tp);
   }
 }
 
-void TaroV7::_enqueue(Task* tp) {
+void TaroCBV3::_enqueue(Task* tp) {
   {
     std::scoped_lock lock(_qmtx);
     _que.push(tp);
   }
 }
 
-void TaroV7::_enqueue(const std::vector<Task*>& tps) {
+void TaroCBV3::_enqueue(const std::vector<Task*>& tps) {
   {
     std::scoped_lock lock(_qmtx);
     for(auto* tp: tps) {
@@ -487,14 +460,7 @@ void TaroV7::_enqueue(const std::vector<Task*>& tps) {
   }
 }
 
-//void TaroV7::_cuda_enqueue(Task* tp) {
-  //{
-    //std::scoped_lock lock(_gqmtx);
-    //_gque.push(tp);
-  //}
-//}
-
-void TaroV7::_process(Worker& worker, Task* tp) {
+void TaroCBV3::_process(Worker& worker, Task* tp) {
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -506,19 +472,10 @@ void TaroV7::_process(Worker& worker, Task* tp) {
       _invoke_coro_task(worker, tp);
     }
     break;
-
-    case Task::CUDATASK: {
-      _handle_cuda_task(worker, tp);
-    }
-    break;
-
-    default:
-      assert(false);
-
   }
 }
 
-void TaroV7::_invoke_static_task(Worker& worker, Task* tp) {
+void TaroCBV3::_invoke_static_task(Worker& worker, Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -533,7 +490,7 @@ void TaroV7::_invoke_static_task(Worker& worker, Task* tp) {
   }
 }
 
-void TaroV7::_invoke_coro_task(Worker& worker, Task* tp) {
+void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   coro->resume();
 
@@ -553,29 +510,12 @@ void TaroV7::_invoke_coro_task(Worker& worker, Task* tp) {
   }
 }
 
-void TaroV7::_handle_cuda_task(Worker& worker, Task* tp) {
-  _cuda_update_status(worker);
-  _cuda_commit_task(worker);
-  auto* gw = _cuda_find_worker(worker);
-
-  if(gw != nullptr) {
-    std::get_if<Task::cudaTask>(&tp->_handle)->work(*gw);
-  }
-  else {
-    // push back to global _que
-    // TODO: may lead to serious serialization
-    // is there any better way? i.g., decentralized que?
-    _enqueue(tp);
-    _notifier.notify(false);
-  }
-}
-
-Worker* TaroV7::_this_worker() {
+Worker* TaroCBV3::_this_worker() {
   auto it = _wids.find(std::this_thread::get_id());
   return (it == _wids.end()) ? nullptr : &_workers[it->second];
 }
 
-bool TaroV7::_is_DAG(
+bool TaroCBV3::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion

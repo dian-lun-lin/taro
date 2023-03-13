@@ -1,4 +1,5 @@
 #pragma once
+#define CUDA_API_PER_THREAD_DEFAULT_STREAM 
 #include <assert.h>
 
 // Convenience function for checking CUDA runtime API results

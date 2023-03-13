@@ -1,42 +1,43 @@
 #pragma once
 
-#include "../../declarations.h"
-#include "../coro.hpp"
-#include "../task.hpp"
-#include "../worker.hpp"
-#include "utility.hpp"
-#include "../../../3rd-party/taskflow/notifier.hpp"
-#include "../../../3rd-party/taskflow/wsq.hpp"
+#include "../../../declarations.h"
+#include "../../coro.hpp"
+#include "../../task.hpp"
+#include "../../worker.hpp"
+#include "../utility.hpp"
+#include "../../../../3rd-party/taskflow/notifier.hpp"
+#include "../../../../3rd-party/taskflow/wsq.hpp"
 
 namespace taro { // begin of namespace taro ===================================
 
-class TaroV8;
+class TaroCBV2;
   
+// As suggested by CUDA doc, we use cudaLaunchHostFunc rather than cudaStreamAddCallback
 // cudaStreamAddcallback
 // cudaStream is handled by Taro
 // work-stealing approach
+//
 // "stream-stealing" approach
-// As suggested by CUDA doc, we use cudaLaunchHostFunc rather than cudaStreamAddCallback
-// TODO: maybe embed CUDA GRAPH? (CUDA graph capturer)
+// keep creating cuda stream if none of exitisng streams is available
 //
 // ==========================================================================
 //
-// Declaration of class TaroV8
+// Declaration of class TaroCBV2
 //
 // ==========================================================================
 //
 
 
-class TaroV8 {
+class TaroCBV2 {
 
-  //friend void CUDART_CB _cuda_stream_callback_v8(cudaStream_t st, cudaError_t stat, void* void_args);
-  friend void CUDART_CB _cuda_stream_callback_v8(void* void_args);
+  //friend void CUDART_CB _cuda_stream_callback_v2(cudaStream_t st, cudaError_t stat, void* void_args);
+  friend void CUDART_CB _cuda_stream_callback_v2(void* void_args);
 
   struct cudaCallbackData {
-    TaroV8* cf;
-    Coro::promise_type* prom;
-    cudaStream_t stream;
-    Task* callback_task;
+    TaroCBV2* cf{nullptr};
+    Coro::promise_type* prom{nullptr};
+    cudaStream_t stream{nullptr};
+    Task* callback_task{nullptr};
   };
 
 
@@ -44,9 +45,9 @@ class TaroV8 {
 
     // num_streams here does not mean anything
     // this arg is for ease of benchmarking
-    TaroV8(size_t num_threads, size_t num_streams = 0);
+    TaroCBV2(size_t num_threads, size_t num_streams = 0);
 
-    ~TaroV8();
+    ~TaroCBV2();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -100,6 +101,7 @@ class TaroV8 {
 
     std::mutex _qmtx;
     std::mutex _stream_mtx;
+    //std::mutex _nmtx;
 
     Notifier _notifier;
     std::atomic<bool> _stop{false};
@@ -114,25 +116,27 @@ class TaroV8 {
 // ==========================================================================
 
 // cuda callback
-void CUDART_CB _cuda_stream_callback_v8(void* void_args) {
-  auto* data = (TaroV8::cudaCallbackData*) void_args;
+void CUDART_CB _cuda_stream_callback_v2(void* void_args) {
+  auto* data = (TaroCBV2::cudaCallbackData*) void_args;
   auto* callback_task = data->callback_task;
   auto* cf = data->cf;
 
+  // after enqueue, cf may finish the task and be destructed
+  // in that case _notifier is destructed before we call notify here
+  //std::unique_lock(cf->_nmtx);
   cf->_enqueue(callback_task);
   cf->_notifier.notify(false);
 }
 
 // ==========================================================================
 //
-// Definition of class TaroV8
+// Definition of class TaroCBV2
 //
 // ==========================================================================
 
-TaroV8::TaroV8(size_t num_threads, size_t num_streams): 
+TaroCBV2::TaroCBV2(size_t num_threads, size_t num_streams): 
   _workers{num_threads}, _notifier{num_threads}, _MAX_STEALS{(num_threads + 1) << 1} {
 
-  //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
   std::mutex wmtx;
   std::condition_variable wcv;
 
@@ -148,11 +152,9 @@ TaroV8::TaroV8(size_t num_threads, size_t num_streams):
       worker._thread = &_threads[id];
       worker._waiter = &_notifier._waiters[id];
 
-      for(size_t k = 0; k < 2; ++k) {
-        cudaStream_t stream;
-        cudaStreamCreate(&stream);
-        worker._sque.push(stream);
-      }
+      cudaStream_t stream;
+      cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+      worker._sque.push(stream);
 
       {
         std::scoped_lock lock(wmtx);
@@ -181,14 +183,14 @@ TaroV8::TaroV8(size_t num_threads, size_t num_streams):
 }
 
 // get a task from worker's own queue
-void TaroV8::_exploit_task(Worker& worker) {
+void TaroCBV2::_exploit_task(Worker& worker) {
   while(auto task = worker._que.pop()) {
     _process(worker, task.value());
   }
 }
 
 // try to steal
-Task* TaroV8::_explore_task(Worker& worker) {
+Task* TaroCBV2::_explore_task(Worker& worker) {
 
   size_t num_steals{0};
   size_t num_yields{0};
@@ -217,7 +219,7 @@ Task* TaroV8::_explore_task(Worker& worker) {
   return task;
 }
 
-bool TaroV8::_wait_for_task(Worker& worker) {
+bool TaroCBV2::_wait_for_task(Worker& worker) {
 
   Task* task{nullptr};
   explore_task:
@@ -260,7 +262,7 @@ bool TaroV8::_wait_for_task(Worker& worker) {
 }
 
 
-TaroV8::~TaroV8() {
+TaroCBV2::~TaroCBV2() {
   for(auto& w: _workers) {
     while(!w._sque.empty()) {
       checkCudaError(cudaStreamDestroy(w._sque.pop().value()));
@@ -268,13 +270,14 @@ TaroV8::~TaroV8() {
   }
 }
 
-void TaroV8::wait() {
+void TaroCBV2::wait() {
   for(auto& t: _threads) {
     t.join();
   }
+  //std::unique_lock lock(_nmtx);
 }
 
-void TaroV8::schedule() {
+void TaroCBV2::schedule() {
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
@@ -288,23 +291,25 @@ void TaroV8::schedule() {
 }
 
 template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
-auto TaroV8::cuda_suspend(C&& c) {
+auto TaroCBV2::cuda_suspend(C&& c) {
 
   struct awaiter: std::suspend_always {
     std::function<void(cudaStream_t)> kernel;
     cudaCallbackData data;
     Task callback_task;
+    Task await_task;
 
-    explicit awaiter(TaroV8* cf, C&& c): kernel{std::forward<C>(c)} {
+    explicit awaiter(TaroCBV2* cf, C&& c): kernel{std::forward<C>(c)} {
       data.cf = cf; 
     }
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
 
-      // steal or create a stream
-      cudaStream_t stream = _get_stream();
+      // set callback data
+      // try to get a stream
+      auto* cf = data.cf;
+      Worker& worker = *(cf->_this_worker());
+      data.stream = _get_stream();
 
-      // set callback task
-      // callback task is a static task
       callback_task = Task(0, std::in_place_type_t<Task::StaticTask>{}, 
         [coro_handle, this]() mutable {
           auto* cf = data.cf;
@@ -314,18 +319,16 @@ auto TaroV8::cuda_suspend(C&& c) {
 
           worker._sque.push(stream);
           cf->_enqueue(worker, cf->_tasks[prom->_id].get());
+          cf->_notifier.notify(false);
         }
       );
 
-      // set callback data
-      data.prom = &(coro_handle.promise());
-      data.stream = stream;
       data.callback_task = &callback_task;
-
+      data.prom = &(coro_handle.promise());
       
       // enqueue the kernel to the stream
-      kernel(stream);
-      cudaLaunchHostFunc(stream, _cuda_stream_callback_v8, (void*)&data);
+      kernel(data.stream);
+      cudaLaunchHostFunc(data.stream, _cuda_stream_callback_v2, (void*)&data);
     }
 
     private:
@@ -361,7 +364,7 @@ auto TaroV8::cuda_suspend(C&& c) {
 
           if(num_steals++ > cf->_MAX_STEALS) {
             std::this_thread::yield();
-            if(num_yields++ > 5) {
+            if(num_yields++ > 10) {
               break;
             }
           }
@@ -369,7 +372,7 @@ auto TaroV8::cuda_suspend(C&& c) {
 
         // if we really cannot get an empty stream, create a new one
         if(stream == nullptr) {
-          cudaStreamCreate(&stream);
+          cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
         }
 
         return stream;
@@ -379,10 +382,10 @@ auto TaroV8::cuda_suspend(C&& c) {
   return awaiter{this, std::forward<C>(c)};
 }
 
-auto TaroV8::suspend() {
+auto TaroCBV2::suspend() {
   struct awaiter: std::suspend_always {
-    TaroV8* _cf;
-    explicit awaiter(TaroV8* cf) noexcept : _cf{cf} {}
+    TaroCBV2* _cf;
+    explicit awaiter(TaroCBV2* cf) noexcept : _cf{cf} {}
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
       auto id = coro_handle.promise()._id;
       _cf->_enqueue(*(_cf->_this_worker()), _cf->_tasks[id].get());
@@ -394,21 +397,21 @@ auto TaroV8::suspend() {
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle TaroV8::emplace(C&& c) {
+TaskHandle TaroCBV2::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle TaroV8::emplace(C&& c) {
+TaskHandle TaroCBV2::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-bool TaroV8::is_DAG() const {
+bool TaroCBV2::is_DAG() const {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -422,24 +425,24 @@ bool TaroV8::is_DAG() const {
   return true;
 }
 
-void TaroV8::_enqueue(Worker& worker, Task* tp) {
+void TaroCBV2::_enqueue(Worker& worker, Task* tp) {
   worker._que.push(tp);
 }
 
-void TaroV8::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
+void TaroCBV2::_enqueue(Worker& worker, const std::vector<Task*>& tps) {
   for(auto* tp: tps) {
     worker._que.push(tp);
   }
 }
 
-void TaroV8::_enqueue(Task* tp) {
+void TaroCBV2::_enqueue(Task* tp) {
   {
     std::scoped_lock lock(_qmtx);
     _que.push(tp);
   }
 }
 
-void TaroV8::_enqueue(const std::vector<Task*>& tps) {
+void TaroCBV2::_enqueue(const std::vector<Task*>& tps) {
   {
     std::scoped_lock lock(_qmtx);
     for(auto* tp: tps) {
@@ -448,7 +451,7 @@ void TaroV8::_enqueue(const std::vector<Task*>& tps) {
   }
 }
 
-void TaroV8::_process(Worker& worker, Task* tp) {
+void TaroCBV2::_process(Worker& worker, Task* tp) {
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -463,7 +466,7 @@ void TaroV8::_process(Worker& worker, Task* tp) {
   }
 }
 
-void TaroV8::_invoke_static_task(Worker& worker, Task* tp) {
+void TaroCBV2::_invoke_static_task(Worker& worker, Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -478,7 +481,7 @@ void TaroV8::_invoke_static_task(Worker& worker, Task* tp) {
   }
 }
 
-void TaroV8::_invoke_coro_task(Worker& worker, Task* tp) {
+void TaroCBV2::_invoke_coro_task(Worker& worker, Task* tp) {
   auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
   coro->resume();
 
@@ -498,12 +501,12 @@ void TaroV8::_invoke_coro_task(Worker& worker, Task* tp) {
   }
 }
 
-Worker* TaroV8::_this_worker() {
+Worker* TaroCBV2::_this_worker() {
   auto it = _wids.find(std::this_thread::get_id());
   return (it == _wids.end()) ? nullptr : &_workers[it->second];
 }
 
-bool TaroV8::_is_DAG(
+bool TaroCBV2::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion

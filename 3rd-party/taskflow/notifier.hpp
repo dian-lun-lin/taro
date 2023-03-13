@@ -64,11 +64,10 @@ namespace taro { // begin of namespace taro ====================================
 // other changes, which would lead to deadlock.
 class Notifier {
 
-  friend class TaroV4;
-  friend class TaroV5;
-  friend class TaroV6;
-  friend class TaroV7;
-  friend class TaroV8;
+  friend class TaroCBV1;
+  friend class TaroCBV2;
+  friend class TaroCBV3;
+  friend class TaroPV1;
 
   public:
 

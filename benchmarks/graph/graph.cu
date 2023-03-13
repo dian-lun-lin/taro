@@ -24,11 +24,11 @@ int main(int argc, char* argv[]) {
     "select job(matmul, cudaflow_reduce, sleep), default is cudaflow_reduce"
   );
 
-  int mode{8};
+  std::string mode{"TaroPV1"};
   app.add_option(
     "-m, --mode", 
     mode, 
-    "select version(1, 2, 3, ..., 7, 8), default is 8. 0: cudaFlow"
+    "select mode (cudaFlow, TaroCBV1, TaroCBV2, TaroCBV3, TaroPV1), default is TaroPV1."
   );
 
   size_t N{1024};
@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
   app.add_option(
     "-s, --num_streams",
     num_streams,
-    "number of streams to run. ignore this arg if using v1, v2, or v8"
+    "number of streams to run. ignore this arg if using TaroCBV3"
   );
 
   CLI11_PARSE(app, argc, argv);
@@ -87,66 +87,31 @@ int main(int argc, char* argv[]) {
   }
 
   std::pair<double, double> time_pair;
-  switch(mode) {
-    case 0:
-      {
-        cudaFlowGraphExecutor executor(*g_ptr, 0, num_threads, num_streams);
-        time_pair = executor.run(N, job);
-      }
-      break;
-    //case 1:
-      //{
-        //GraphExecutor<taro::TaroV1> executor(*g_ptr, 0, num_threads); 
-        //time_pair = executor.run(N, job);
-      //}
-      //break;
-    //case 2:
-      //{
-        //GraphExecutor<taro::TaroV2> executor(*g_ptr, 0, num_threads); 
-        //time_pair = executor.run(N, job);
-      //}
-      //break;
-    case 3:
-      {
-        GraphExecutor<taro::TaroV3> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run(N, job);
-      }
-      break;
-    case 4:
-      {
-        GraphExecutor<taro::TaroV4> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run(N, job);
-      }
-      break;
-    case 5:
-      {
-        GraphExecutor<taro::TaroV5> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run(N, job);
-      }
-      break;
-    case 6:
-      {
-        GraphExecutor<taro::TaroV6> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run(N, job);
-      }
-      break;
-    case 7:
-      {
-        GraphExecutor<taro::TaroV7> executor(*g_ptr, 0, num_threads, num_streams); 
-        time_pair = executor.run(N, job);
-      }
-      break;
-    case 8:
-      {
-        GraphExecutor<taro::TaroV8> executor(*g_ptr, 0, num_threads); 
-        time_pair = executor.run(N, job);
-      }
-      break;
 
-    default:
-      assert(false);
+  if(mode == "TaroCBV1") {
+    GraphExecutor<taro::TaroCBV1> executor(*g_ptr, 0, num_threads, num_streams); 
+    time_pair = executor.run(N, job);
   }
-
+  else if(mode == "TaroCBV2") {
+    GraphExecutor<taro::TaroCBV2> executor(*g_ptr, 0, num_threads, num_streams); 
+    time_pair = executor.run(N, job);
+  }
+  else if(mode == "TaroCBV3") {
+    GraphExecutor<taro::TaroCBV3> executor(*g_ptr, 0, num_threads, num_streams); 
+    time_pair = executor.run(N, job);
+  }
+  else if(mode == "TaroPV1") {
+    GraphExecutor<taro::TaroPV1> executor(*g_ptr, 0, num_threads, num_streams); 
+    time_pair = executor.run(N, job);
+  }
+  else if(mode == "cudaFlow") {
+    cudaFlowGraphExecutor executor(*g_ptr, 0, num_threads, num_streams);
+    time_pair = executor.run(N, job);
+  }
+  else {
+    assert(false);
+  }
+  
   std::cout << "Construction time: " 
             << time_pair.first
             << " ms\n"

@@ -15,6 +15,7 @@
 #include <variant>
 #include <taskflow/wsq.hpp>
 #include <random>
+#include <cuda.h> // used for CUDA driver api
 
 
 namespace taro { // begin of namespace taro ===================================

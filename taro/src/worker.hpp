@@ -8,7 +8,7 @@ namespace taro { // begin of namespace taro ===================================
 
 class cudaWorker {
   friend class Worker;
-  friend class TaroV7;
+  friend class TaroPV1;
 
   cudaStream_t stream;
   Task* cur_task;
@@ -21,7 +21,7 @@ class cudaWorker {
 
     cudaWorker(): cur_task{nullptr} {
       //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
-      cudaStreamCreate(&stream);
+      cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
     }
 
     ~cudaWorker() {
@@ -43,12 +43,10 @@ class cudaWorker {
 
 class Worker {
 
-
-  friend class TaroV4;
-  friend class TaroV5;
-  friend class TaroV6;
-  friend class TaroV7;
-  friend class TaroV8;
+  friend class TaroCBV1;
+  friend class TaroCBV2;
+  friend class TaroCBV3;
+  friend class TaroPV1;
 
   public:
 
@@ -56,11 +54,11 @@ class Worker {
 
     WorkStealingQueue<Task*> _que;
     
-    // for v8
-    WorkStealingQueue<cudaStream_t> _sque;
-
-    // for v7
+    // for TaroPV1
     std::vector<cudaWorker> _gws;
+
+    // for TaroCBV2
+    WorkStealingQueue<cudaStream_t> _sque;
 
     Notifier::Waiter* _waiter;
     std::thread* _thread;

@@ -73,7 +73,7 @@ target_compile_options(
 )
 
 #set(CMAKE_CXX_FLAGS_DEBUG "-g -fsanitize=thread -Wall -Wextra -Wfatal-errors")
-set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra -Wfatal-errors -fsanitize=thread --extended-lambda")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra -Wfatal-errors -fsanitize=thread")
 #set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra -Wfatal-errors")
 #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}" "-fsanitize=thread")
 set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" "-std=c++20 -Xcompiler -std=c++20 --extended-lambda" )
@@ -152,12 +152,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TARO_UTEST_DIR})
 
 cuda_add_executable(test_linear_chain ${TARO_UTEST_DIR}/linear_chain.cu)
 target_include_directories(test_linear_chain PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
-target_link_libraries(test_linear_chain Threads::Threads)
+target_link_libraries(test_linear_chain Threads::Threads cuda)
 doctest_discover_tests(test_linear_chain)
 
 cuda_add_executable(test_independent ${TARO_UTEST_DIR}/independent.cu)
 target_include_directories(test_independent PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
-target_link_libraries(test_independent Threads::Threads)
+target_link_libraries(test_independent Threads::Threads cuda)
 doctest_discover_tests(test_independent)
 
 #cuda_add_executable(test_map_reduce ${TARO_UTEST_DIR}/map_reduce.cu)
@@ -183,13 +183,9 @@ message(STATUS "building executables ...")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 
-#cuda_add_executable(pipeline ${PROJECT_SOURCE_DIR}/benchmarks/pipeline.cu)
-#target_compile_options(pipeline PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
-cuda_add_executable(independent ${PROJECT_SOURCE_DIR}/benchmarks/independent.cu)
-target_compile_options(independent PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
-
 cuda_add_executable(graph ${PROJECT_SOURCE_DIR}/benchmarks/graph/graph.cu)
 target_compile_options(graph PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
+target_link_libraries(graph cuda)
 #set_property(TARGET pipeline PROPERTY CUDA_STANDARD 20)
 #set_property(TARGET to_binary PROPERTY CUDA_STANDARD 17)
 
