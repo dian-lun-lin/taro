@@ -78,6 +78,7 @@ class TaroCBV3 {
 
     void _invoke_coro_task(Worker& worker, Task* tp);
     void _invoke_static_task(Worker& worker, Task* tp);
+    void _invoke_inner_task(Worker& worker, Task* tp);
 
     Worker* _this_worker();
 
@@ -105,6 +106,7 @@ class TaroCBV3 {
     Notifier _notifier;
     std::atomic<bool> _stop{false};
     std::atomic<size_t> _finished{0};
+    std::atomic<size_t> _cbcnt{0};
     size_t _MAX_STEALS;
 };
 
@@ -120,8 +122,12 @@ void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
   auto* callback_task = data->callback_task;
   auto* cf = data->cf;
 
+  // after enqueue, cf may finish the task and be destructed
+  // in that case _notifier is destructed before we call notify here
+  // TODO: memory_order_acq_rel?
   cf->_enqueue(callback_task);
   cf->_notifier.notify(false);
+  cf->_cbcnt.fetch_sub(1);
 }
 
 // ==========================================================================
@@ -274,6 +280,7 @@ void TaroCBV3::wait() {
   for(auto& t: _threads) {
     t.join();
   }
+  while(_cbcnt.load() != 0) {}
 }
 
 void TaroCBV3::schedule() {
@@ -312,8 +319,8 @@ auto TaroCBV3::cuda_suspend(C&& c) {
       // if we cannot get a stream
       // enqueue the task back 
       if(data.stream == nullptr) {
-        await_task = Task(0, std::in_place_type_t<Task::StaticTask>{},
-          [coro_handle, this]() mutable { await_suspend(coro_handle); }
+        await_task = Task(0, std::in_place_type_t<Task::InnerTask>{},
+          [coro_handle, this](Worker& worker) mutable { await_suspend(coro_handle); }
         );
 
         cf->_enqueue(worker, &await_task);
@@ -322,13 +329,11 @@ auto TaroCBV3::cuda_suspend(C&& c) {
       else {
 
         // set callback task
-        // callback task is a static task
-        callback_task = Task(0, std::in_place_type_t<Task::StaticTask>{}, 
-          [coro_handle, this]() mutable {
+        callback_task = Task(0, std::in_place_type_t<Task::InnerTask>{}, 
+          [coro_handle, this](Worker& worker) mutable {
             auto* cf = data.cf;
             auto* prom = data.prom;
             cudaStream_t stream = data.stream;
-            Worker& worker = *(cf->_this_worker());
 
             worker._sque.push(stream);
             cf->_enqueue(worker, cf->_tasks[prom->_id].get());
@@ -339,6 +344,7 @@ auto TaroCBV3::cuda_suspend(C&& c) {
         data.callback_task = &callback_task;
         data.prom = &(coro_handle.promise());
         
+        cf->_cbcnt.fetch_add(1);
         // enqueue the kernel to the stream
         kernel(data.stream);
         cudaLaunchHostFunc(data.stream, _cuda_stream_callback_v3, (void*)&data);
@@ -472,6 +478,14 @@ void TaroCBV3::_process(Worker& worker, Task* tp) {
       _invoke_coro_task(worker, tp);
     }
     break;
+
+    case Task::INNERTASK: {
+      _invoke_inner_task(worker, tp);
+    }
+    break;
+
+    default:
+      assert(false);
   }
 }
 
@@ -491,10 +505,24 @@ void TaroCBV3::_invoke_static_task(Worker& worker, Task* tp) {
 }
 
 void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
-  auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
-  coro->resume();
+  auto* coro_t = std::get_if<Task::CoroTask>(&tp->_handle);
+  // when this thread (i.e., t1) calls cuda_suspend and insert a callback to CUDA runtime
+  // the CUDA runtime may finish cuda kernel very fast and 
+  // use its own CPU thread to call the callback to enque the coroutine back
+  // then, another thread (i.e., t2) may get this coroutine and performs resume()
+  // However, t1 may still in resume()
+  // which in turn causing data race
+  // That is, two same coroutines are executed in parallel by t1 and t2
+  // hence we use lock in each coro to check if a coroutine is in busy used 
+  // final has similar issue as well
+  bool final{false};
+  {
+    std::scoped_lock lock(coro_t->coro._mtx);
+    coro_t->resume();
+    final = coro_t->coro._coro_handle.promise()._final;
+  }
 
-  if(coro->coro._coro_handle.promise()._final) {
+  if(final) {
     for(auto succp: tp->_succs) {
       if(succp->_join_counter.fetch_sub(1) == 1) {
         _enqueue(worker, succp);
@@ -508,6 +536,10 @@ void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
       _notifier.notify(true);
     }
   }
+}
+
+void TaroCBV3::_invoke_inner_task(Worker& worker, Task* tp) {
+  std::get_if<Task::InnerTask>(&tp->_handle)->work(worker);
 }
 
 Worker* TaroCBV3::_this_worker() {

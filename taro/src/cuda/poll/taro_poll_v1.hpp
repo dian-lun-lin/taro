@@ -534,10 +534,25 @@ void TaroPV1::_invoke_static_task(Worker& worker, Task* tp) {
 }
 
 void TaroPV1::_invoke_coro_task(Worker& worker, Task* tp) {
-  auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
-  coro->resume();
+  auto* coro_t = std::get_if<Task::CoroTask>(&tp->_handle);
+  // when this thread (i.e., t1) calls cuda_suspend and insert a callback to CUDA runtime
+  // the CUDA runtime may finish cuda kernel very fast and 
+  // use its own CPU thread to call the callback to enque the coroutine back
+  // then, another thread (i.e., t2) may get this coroutine and performs resume()
+  // However, t1 may still in resume()
+  // which in turn causing data race
+  // That is, two same coroutines are executed in parallel by t1 and t2
+  // hence we use lock in each coro to check if a coroutine is in busy used 
+  // final has similar issue as well
+  bool final{false};
+  {
+    std::scoped_lock lock(coro_t->coro._mtx);
+    coro_t->resume();
+    final = coro_t->coro._coro_handle.promise()._final;
+  }
 
-  if(coro->coro._coro_handle.promise()._final) {
+  if(final) {
+
     for(auto succp: tp->_succs) {
       if(succp->_join_counter.fetch_sub(1) == 1) {
         _enqueue(worker, succp);

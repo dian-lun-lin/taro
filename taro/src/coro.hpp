@@ -45,6 +45,9 @@ struct Coro { // Coroutine needs to be struct
     bool _done();
 
     std::coroutine_handle<promise_type> _coro_handle;
+
+    // TODO: move constructor may have issue?
+    std::mutex _mtx;
 };
 
 // ==========================================================================

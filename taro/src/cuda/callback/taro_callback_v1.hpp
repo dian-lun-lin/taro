@@ -97,6 +97,7 @@ class TaroCBV1 {
     std::vector<cudaStream> _streams;
     std::vector<std::unique_ptr<Task>> _tasks;
     std::unordered_map<std::thread::id, size_t> _wids;
+    std::vector<std::mutex> _coro_mtx;
 
     std::vector<size_t> _in_stream_tasks;
     WorkStealingQueue<Task*> _que;
@@ -105,12 +106,12 @@ class TaroCBV1 {
     std::mutex _wmtx;
     std::mutex _stream_mtx;
     std::mutex _kernel_mtx;
-    //std::mutex _nmtx;
     std::condition_variable _wcv;
 
     Notifier _notifier;
     std::atomic<bool> _stop{false};
     std::atomic<size_t> _finished{0};
+    std::atomic<size_t> _cbcnt{0};
     size_t _MAX_STEALS;
 };
 
@@ -136,10 +137,10 @@ void CUDART_CB _cuda_stream_callback_v1(void* void_args) {
 
   // after enqueue, cf may finish the task and be destructed
   // in that case _notifier is destructed before we call notify in the callback
-  // TODO: we need a lock in the callback and wait() to avoid the issue?
-  //std::scoped_lock(cf->_nmtx);
+  // TODO: memory_order_acq_rel?
   cf->_enqueue(cf->_tasks[prom->_id].get());
   cf->_notifier.notify(false);
+  cf->_cbcnt.fetch_sub(1);
 }
 
 // ==========================================================================
@@ -286,14 +287,17 @@ TaroCBV1::~TaroCBV1() {
 }
 
 void TaroCBV1::wait() {
+
   for(auto& t: _threads) {
     t.join();
   }
+
+  while(_cbcnt.load() != 0) {}
+
   //for(auto& st: _streams) {
     //checkCudaError(cudaStreamSynchronize(st.st));
   //}
   //checkCudaError(cudaDeviceSynchronize());
-  //std::scoped_lock lock(_nmtx);
 }
 
 void TaroCBV1::schedule() {
@@ -338,6 +342,7 @@ auto TaroCBV1::cuda_suspend(C&& c) {
 
 
       // enqueue the kernel to the stream
+      data.cf->_cbcnt.fetch_add(1);
       {
         std::scoped_lock lock(data.cf->_kernel_mtx);
         kernel(data.cf->_streams[stream_id].st);
@@ -445,16 +450,32 @@ void TaroCBV1::_invoke_static_task(Worker& worker, Task* tp) {
   }
 
   if(_finished.fetch_add(1) + 1 == _tasks.size()) {
+      std::cerr << "stop from static task\n";
     _stop = true;
     _notifier.notify(true);
   }
 }
 
 void TaroCBV1::_invoke_coro_task(Worker& worker, Task* tp) {
-  auto* coro = std::get_if<Task::CoroTask>(&tp->_handle);
-  coro->resume();
+  auto* coro_t = std::get_if<Task::CoroTask>(&tp->_handle);
 
-  if(coro->coro._coro_handle.promise()._final) {
+  // when this thread (i.e., t1) calls cuda_suspend and insert a callback to CUDA runtime
+  // the CUDA runtime may finish cuda kernel very fast and 
+  // use its own CPU thread to call the callback to enque the coroutine back
+  // then, another thread (i.e., t2) may get this coroutine and performs resume()
+  // However, t1 may still in resume()
+  // which in turn causing data race
+  // That is, two same coroutines are executed in parallel by t1 and t2
+  // hence we use lock in each coro to check if a coroutine is in busy used 
+  // final has similar issue as well
+  bool final{false};
+  {
+    std::scoped_lock lock(coro_t->coro._mtx);
+    coro_t->resume();
+    final = coro_t->coro._coro_handle.promise()._final;
+  }
+
+  if(final) {
     for(auto succp: tp->_succs) {
       if(succp->_join_counter.fetch_sub(1) == 1) {
         _enqueue(worker, succp);
@@ -463,7 +484,6 @@ void TaroCBV1::_invoke_coro_task(Worker& worker, Task* tp) {
     }
 
     if(_finished.fetch_add(1) + 1 == _tasks.size()) {
-      // TODO: we need to check if there's no callback
       _stop = true;
       _notifier.notify(true);
     }

@@ -11,6 +11,7 @@ namespace taro { // begin of namespace taro ===================================
 // ==========================================================================
 
 class cudaWorker;
+class Worker;
 
 template <typename C>
 constexpr bool is_static_task_v = 
@@ -77,6 +78,7 @@ class Task {
     std::function<void()> work;
   };
 
+  // for TaroPV1
   struct cudaTask {
     template <typename C>
     cudaTask(C&&);
@@ -84,11 +86,20 @@ class Task {
     std::function<void(cudaWorker&)> work;
   };
 
+  // for TaroCBV2, TaroCBV3
+  struct InnerTask {
+    template <typename C>
+    InnerTask(C&&);
+
+    std::function<void(Worker&)> work;
+  };
+
   using handle_t = std::variant<
     std::monostate,
     CoroTask,
     StaticTask,
-    cudaTask
+    cudaTask,
+    InnerTask
   >;
 
   public:
@@ -114,6 +125,7 @@ class Task {
     constexpr static auto COROTASK   = get_index_v<CoroTask, handle_t>;
     constexpr static auto STATICTASK = get_index_v<StaticTask, handle_t>;
     constexpr static auto CUDATASK = get_index_v<cudaTask, handle_t>;
+    constexpr static auto INNERTASK = get_index_v<InnerTask, handle_t>;
 
   private:
 
@@ -139,6 +151,10 @@ Task::CoroTask::CoroTask(C&& c):
 template <typename C>
 Task::cudaTask::cudaTask(C&& c): 
   work{std::forward<C>(c)} {
+}
+
+template <typename C>
+Task::InnerTask::InnerTask(C&& c): work{std::forward<C>(c)} {
 }
 
 // ==========================================================================
