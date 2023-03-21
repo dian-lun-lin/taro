@@ -110,9 +110,12 @@ class TaroPV1 {
 // ==========================================================================
 
 TaroPV1::TaroPV1(size_t num_threads, size_t num_streams): 
-  _workers{num_threads}, _notifier{num_threads}, 
-  _MAX_STEALS{(num_threads + 1) << 1}, _CUDA_MAX_STEALS{(num_threads + 1) << 1}, 
-  _num_streams{num_streams} 
+  _workers{num_threads}, 
+  _num_streams{num_streams},
+  _notifier{num_threads}, 
+  _MAX_STEALS{(num_threads + 1) << 1},
+  _CUDA_MAX_STEALS{(num_threads + 1) << 1}, 
+  _threads{num_threads}
 {
 
   std::mutex wmtx;
@@ -124,17 +127,18 @@ TaroPV1::TaroPV1(size_t num_threads, size_t num_streams):
   _threads.reserve(num_threads);
   size_t cnt{0};
   for(size_t id = 0; id < num_threads; ++id) {
-    _threads.emplace_back([this, id, num_threads, num_streams, &cnt, &wmtx, &wcv]() {
+    auto& worker = _workers[id];
+    worker._id = id;
+    worker._vtm = id;
+    worker._waiter = &_notifier._waiters[id];
+
+    // evenly distribute cuda workers to workers
+    worker._gws.resize((num_streams - id + num_threads - 1) / num_threads);
+
+    _threads[id] = std::thread([this, id, num_threads, num_streams, &worker, &cnt, &wmtx, &wcv]() {
       //cuCtxSetCurrent(ctx);
 
-      auto& worker = _workers[id];
-      worker._id = id;
-      worker._vtm = id;
       worker._thread = &_threads[id];
-      worker._waiter = &_notifier._waiters[id];
-
-      // evenly distribute cuda workers to workers
-      worker._gws.resize((num_streams - id + num_threads - 1) / num_threads);
 
       {
         std::scoped_lock lock(wmtx);
@@ -298,7 +302,6 @@ bool TaroPV1::_wait_for_task(Worker& worker) {
     return false;
   }
 
-  // TODO: why do we need to use index-based scan to avoid data race?
   for(size_t vtm = 0; vtm < _workers.size(); ++vtm) {
     if(!_workers[vtm]._que.empty()) {
       _notifier.cancel_wait(worker._waiter);
@@ -307,9 +310,9 @@ bool TaroPV1::_wait_for_task(Worker& worker) {
     }
   }
 
-  _cuda_update_status(worker);
   // a coroutine is enqueued to local queue if there exists one cuda_task that is committed
   // return true and go back to explore
+  _cuda_update_status(worker);
   if(_cuda_commit_task(worker)) {
     _notifier.cancel_wait(worker._waiter);
     return true;

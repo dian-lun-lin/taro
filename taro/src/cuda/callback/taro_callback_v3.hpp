@@ -137,7 +137,11 @@ void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
 // ==========================================================================
 
 TaroCBV3::TaroCBV3(size_t num_threads, size_t num_streams): 
-  _workers{num_threads}, _notifier{num_threads}, _MAX_STEALS{(num_threads + 1) << 1} {
+  _workers{num_threads}, 
+  _notifier{num_threads}, 
+  _MAX_STEALS{(num_threads + 1) << 1},
+  _threads{num_threads}
+{
 
   //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
   std::mutex wmtx;
@@ -147,20 +151,22 @@ TaroCBV3::TaroCBV3(size_t num_threads, size_t num_streams):
   _threads.reserve(num_threads);
   size_t cnt{0};
   for(size_t id = 0; id < num_threads; ++id) {
-    _threads.emplace_back([this, id, num_threads, num_streams, &cnt, &wmtx, &wcv]() {
+    auto& worker = _workers[id];
+    worker._id = id;
+    worker._vtm = id;
+    worker._waiter = &_notifier._waiters[id];
 
-      auto& worker = _workers[id];
-      worker._id = id;
-      worker._vtm = id;
+    // evenly distribute cuda streams to workers
+    for(size_t k = 0; k < (num_streams - id + num_threads - 1) / num_threads; ++k) {
+      cudaStream_t stream;
+      cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+      worker._sque.push(stream);
+    }
+
+    _threads[id] = std::thread([this, id, num_threads, num_streams, &worker, &cnt, &wmtx, &wcv]() {
+
       worker._thread = &_threads[id];
-      worker._waiter = &_notifier._waiters[id];
 
-      // evenly distribute cuda streams to workers
-      for(size_t k = 0; k < (num_streams - id + num_threads - 1) / num_threads; ++k) {
-        cudaStream_t stream;
-        cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
-        worker._sque.push(stream);
-      }
 
       {
         std::scoped_lock lock(wmtx);

@@ -9,6 +9,7 @@ namespace taro { // begin of namespace taro ===================================
 class cudaWorker {
   friend class Worker;
   friend class TaroPV1;
+  friend class TaroPV2;
 
   cudaStream_t stream;
   Task* cur_task;
@@ -47,6 +48,7 @@ class Worker {
   friend class TaroCBV2;
   friend class TaroCBV3;
   friend class TaroPV1;
+  friend class TaroPV2;
 
   public:
 

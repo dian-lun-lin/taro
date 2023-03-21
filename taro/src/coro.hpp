@@ -13,8 +13,11 @@ struct Coro { // Coroutine needs to be struct
   friend class TaroCBV1;
   friend class TaroCBV2;
   friend class TaroCBV3;
+  friend class TaroCBV4;
   friend class TaroPV1;
+  friend class TaroPV2;
   friend class Task;
+  friend void CUDART_CB _cuda_stream_callback_v2(void* void_args);
 
   public:
 

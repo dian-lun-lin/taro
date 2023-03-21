@@ -53,8 +53,11 @@ class Task {
   friend class TaroCBV1;
   friend class TaroCBV2;
   friend class TaroCBV3;
+  friend class TaroCBV4;
   friend class TaroPV1;
+  friend class TaroPV2;
   friend class TaskHandle;
+  friend void CUDART_CB _cuda_stream_callback_v2(void* void_args);
 
   struct CoroTask {
     template <typename C>
@@ -136,6 +139,9 @@ class Task {
     size_t _id;
 
     handle_t _handle;
+
+    // for taro_poll_v2
+    size_t _poll_times{0};
 };
 
 template <typename C>
