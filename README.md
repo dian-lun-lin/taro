@@ -11,9 +11,10 @@ int main() {
   taro::Taro taro{4, 4}; // (num_threads, num_streams)
   int* d_a, *d_b, *d_c;
   std::vector<int> h_c;
+  size_t N;
   
   // H2D
-  auto task_a = taro.emplace([]() -> taro::Coro {
+  auto task_a = taro.emplace([&taro, d_a, N]() -> taro::Coro {
     std::vector<int> h_a(N * N);
     std::iota(h_a.begin(), h_a.end(), 0);
     co_await taro.cuda_suspend([&d_a, &h_a, N](cudaStream_t stream) {   
@@ -23,7 +24,7 @@ int main() {
   });
   
   // H2D
-  auto task_b = taro.emplace([]() -> taro::Coro {
+  auto task_b = taro.emplace([&taro, d_b, N]() -> taro::Coro {
     std::vector<int> h_b(N * N);
     std::iota(h_b.begin(), h_b.end(), 0);
     co_await taro.cuda_suspend([&d_b, &h_b, N](cudaStream_t stream) {    
@@ -33,7 +34,7 @@ int main() {
   });
   
   // matrix multiplication and D2H
-  auto task_c = taro.emplace([&h_c, &d_c, N]() -> taro::Coro {
+  auto task_c = taro.emplace([&taro, &h_c, d_c, N]() -> taro::Coro {
     size BLOCK_SIZE{128};
     dim3 dim_grid((N - 1) / BLOCK_SIZE + 1, (N - 1) / BLOCK_SIZE + 1, 1);
     dim3 dim_block(BLOCK_SIZE, BLOCK_SIZE, 1);
@@ -46,7 +47,7 @@ int main() {
   });
   
   // free
-  auto task_d = taro.emplace([]() -> taro::Coro { 
+  auto task_d = taro.emplace([&taro, d_a, d_b, d_c]() -> taro::Coro { 
     co_await taro.cuda_suspend([=](cudaStream_t stream) {    
       cudaFreeAsync(d_a, stream);
       cudaFreeAsync(d_b, stream);
