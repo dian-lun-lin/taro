@@ -4,18 +4,8 @@
 //#include <thrust/sort.h>
 //#include <thrust/functional.h>
 //#include <thrust/random.h>
-
-#include "base/graph_base.hpp"
-
-#include <taro/src/cuda/callback/taro_callback_v1.hpp>
-#include <taro/src/cuda/callback/taro_callback_v2.hpp>
-#include <taro/src/cuda/callback/taro_callback_v3.hpp>
-#include <taro/src/cuda/poll/taro_poll_v1.hpp>
-#include <taro/src/cuda/algorithm.hpp>
-#include "../taskflow/taskflow/cuda/algorithm/reduce.hpp"
-
-#include <chrono>
-#include <cassert>
+//
+#include "graph.hpp"
 
 // GPU sleep kernel
 __global__ void cuda_sleep(

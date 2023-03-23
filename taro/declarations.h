@@ -14,8 +14,9 @@
 #include <cassert>
 #include <variant>
 #include <taskflow/wsq.hpp>
+#include <taskflow/taskflow/taskflow.hpp>
 #include <random>
-#include <cuda.h> // used for CUDA driver api
+//#include <cuda.h> // used for CUDA driver api
 
 
 namespace taro { // begin of namespace taro ===================================

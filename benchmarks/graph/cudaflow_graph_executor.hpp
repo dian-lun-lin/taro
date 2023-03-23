@@ -1,15 +1,6 @@
 #pragma once
 
-#include "base/graph_base.hpp"
-
-#include "../taskflow/taskflow/taskflow.hpp"
-#include "../taskflow/taskflow/cuda/cudaflow.hpp"
-#include "../taskflow/taskflow/cuda/algorithm/reduce.hpp"
-#include <taro/src/cuda/algorithm.hpp>
-
-#include <chrono>
-#include <cassert>
-
+#include "graph.hpp"
 class cudaFlowGraphExecutor {
 
   public:
@@ -20,6 +11,7 @@ class cudaFlowGraphExecutor {
     std::pair<double, double> run_cudaflow_reduce(size_t N);
     std::pair<double, double> run_cudaflow_reduce2(size_t N);
     std::pair<double, double> run_matmul(size_t N);
+    std::pair<double, double> run_sleep();
 
   private:
     
@@ -44,6 +36,9 @@ std::pair<double, double> cudaFlowGraphExecutor::run(size_t N, std::string job) 
   }
   else if(job == "cudaflow_reduce") {
     dur =  run_cudaflow_reduce(N);
+  }
+  else if(job == "sleep") {
+    dur =  run_sleep();
   }
   else {
     assert(false);
@@ -401,4 +396,74 @@ std::pair<double, double> cudaFlowGraphExecutor::run_cudaflow_reduce2(size_t N) 
   return {constr_dur, exec_dur};
 
 }
+
+std::pair<double, double> cudaFlowGraphExecutor::run_sleep() {
+  auto constr_tic = std::chrono::steady_clock::now();
+
+  tf::Taskflow taskflow;
+  tf::Executor executor{_num_threads};
+
+  size_t cnt{0};
+
+  std::vector<std::vector<std::vector<tf::Task>>> tasks;
+  tasks.resize(_g.get_graph().size());
+  for(size_t l = 0; l < _g.get_graph().size(); ++l) {
+    tasks[l].resize((_g.get_graph())[l].size());
+    for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
+      tasks[l][i].resize(4);
+
+      tasks[l][i][0] = taskflow.emplace([]() mutable {
+        cpu_sleep(2);
+      });
+
+      tasks[l][i][1] = taskflow.emplace_on([](tf::cudaFlowCapturer& cf) mutable {
+        cf.on([](cudaStream_t st) mutable {
+          cuda_sleep<<<8, 256, 0, st>>>(8);
+        });
+      }, _dev_id);
+
+        
+      tasks[l][i][2] =  taskflow.emplace([=]() mutable {
+        cpu_sleep(2);
+      });
+
+      tasks[l][i][3] =  taskflow.emplace([=]() mutable  {
+        cpu_sleep(2);
+      });
+
+      tasks[l][i][0].precede(tasks[l][i][1]);
+      tasks[l][i][0].precede(tasks[l][i][2]);
+      tasks[l][i][1].precede(tasks[l][i][3]);
+      tasks[l][i][2].precede(tasks[l][i][3]);
+      ++cnt;
+    }
+  }
+
+  //connection
+  for(size_t l = 0; l < _g.get_graph().size() - 1; ++l) {
+    for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
+      for(auto&& out_node: _g.at(l, i).out_nodes) {
+        tasks[l][i][3].precede(tasks[l + 1][out_node][0]);
+        //tasks[l][i][3].precede(tasks[l + 1][out_node][1]);
+        //tasks[l][i][3].precede(tasks[l + 1][out_node][2]);
+      }
+    }
+  }
+  auto constr_toc = std::chrono::steady_clock::now();
+
+  auto exec_tic = std::chrono::steady_clock::now();
+
+  executor.run(taskflow).wait();
+
+  auto exec_toc = std::chrono::steady_clock::now();
+
+  //assert(_g.traversed());
+
+  auto constr_dur = std::chrono::duration_cast<std::chrono::milliseconds>(constr_toc - constr_tic).count();
+
+  auto exec_dur = std::chrono::duration_cast<std::chrono::milliseconds>(exec_toc - exec_tic).count();
+
+  return {constr_dur, exec_dur};
+}
+
 

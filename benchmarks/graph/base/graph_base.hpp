@@ -20,7 +20,7 @@ struct Node {
   inline void print_node(std::ostream& os);
 
   size_t level;
-  size_t idx;
+  size_t idx; // idx at each level
   //bool* visited{nullptr}; //allocated by cudaMallocManaged
 
   std::vector<size_t> out_nodes; 

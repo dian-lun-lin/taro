@@ -125,14 +125,9 @@ void CUDART_CB _cuda_stream_callback_v2(void* void_args) {
   auto* callback_task = data->callback_task;
   auto* taro = data->taro;
 
-  Task* tp = taro->_tasks[data->prom->_id].get();
-  auto* coro_t = std::get_if<Task::CoroTask>(&tp->_handle);
-  std::scoped_lock lock(coro_t->coro._mtx);
-
   // after enqueue, taro may finish the task and be destructed
   // in that case _notifier is destructed before we call notify here
   // we need to count callback times
-  // TODO: memory_order_acq_rel?
   taro->_enqueue(callback_task);
   taro->_notifier.notify(false);
   taro->_cbcnt.fetch_sub(1);
@@ -312,17 +307,18 @@ auto TaroCBV2::cuda_suspend(C&& c) {
     std::function<void(cudaStream_t)> kernel;
     cudaCallbackData data;
     Task callback_task;
+    std::atomic<bool> sync{false};
+    awaiter(const awaiter& ) {} // compiler bug?
 
     explicit awaiter(TaroCBV2* taro, C&& c): kernel{std::forward<C>(c)} {
       data.taro = taro; 
     }
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
-
       _set_callback(coro_handle);
 
       // enqueue the kernel to the stream
-      data.taro->_cbcnt.fetch_add(1);
       kernel(data.stream);
+      data.taro->_cbcnt.fetch_add(1);
       cudaLaunchHostFunc(data.stream, _cuda_stream_callback_v2, (void*)&data);
     }
 

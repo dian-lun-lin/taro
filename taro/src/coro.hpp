@@ -13,7 +13,7 @@ struct Coro { // Coroutine needs to be struct
   friend class TaroCBV1;
   friend class TaroCBV2;
   friend class TaroCBV3;
-  friend class TaroCBV4;
+  friend class TaroCBTaskflow;
   friend class TaroPV1;
   friend class TaroPV2;
   friend class Task;

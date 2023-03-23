@@ -53,7 +53,7 @@ class Task {
   friend class TaroCBV1;
   friend class TaroCBV2;
   friend class TaroCBV3;
-  friend class TaroCBV4;
+  friend class TaroCBTaskflow;
   friend class TaroPV1;
   friend class TaroPV2;
   friend class TaskHandle;
@@ -114,8 +114,7 @@ class Task {
     Task() = default;
     ~Task() = default;
 
-    // move construtor is for cudaTask
-    // see cuda_suspend() in taro_v7
+    // move construtor is for cudaTask and Innertask
     // TODO: there must be a better implementation
     Task(Task&& rhs):_handle{std::move(rhs._handle)} {}
     Task& operator=(Task&& rhs) { _handle = std::move(rhs._handle);  return *this; }

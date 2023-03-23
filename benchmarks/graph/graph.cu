@@ -10,25 +10,25 @@ int main(int argc, char* argv[]) {
 
   CLI::App app{"Graph Benchmark"};
 
-  std::string graph{"SerialGraph"};
+  std::string graph{"ParallelGraph"};
   app.add_option(
     "-g, --graph", 
     graph, 
-    "select graph(SerialGraph, ParallelGraph, Tree, RandomDAG, MapReduce), default is SerialGraph" 
+    "select graph(SerialGraph, ParallelGraph, Tree, RandomDAG, MapReduce, Wavefront), default is ParallelGraph" 
   );
 
-  std::string job{"cudaflow_reduce"};
+  std::string job{"sleep"};
   app.add_option(
     "-j, --job",
     job,
-    "select job(matmul, cudaflow_reduce, sleep), default is cudaflow_reduce"
+    "select job(matmul, cudaflow_reduce, sleep), default is sleep"
   );
 
   std::string mode{"TaroPV1"};
   app.add_option(
     "-m, --mode", 
     mode, 
-    "select mode (cudaFlow, TaroCBV1, TaroCBV2, TaroCBV3, TaroPV1), default is TaroPV1."
+    "select mode (cudaFlow, TaroCBV1, TaroCBV2, TaroCBV3, TaroPV1, TaroPV2), default is TaroPV1."
   );
 
   size_t N{1024};
@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
   app.add_option(
     "-s, --num_streams",
     num_streams,
-    "number of streams to run. ignore this arg if using TaroCBV3"
+    "number of streams to run. ignore this arg if using TaroCBV2"
   );
 
   CLI11_PARSE(app, argc, argv);
@@ -82,6 +82,10 @@ int main(int argc, char* argv[]) {
     assert(args.size() == 2);
     g_ptr = new Diamond(args[0], args[1]);
   }
+  else if(graph == "Wavefront") {
+    assert(args.size() == 1);
+    g_ptr = new WavefrontGraph(args[0]);
+  }
   else {
     throw std::runtime_error("No such graph\n");
   }
@@ -96,12 +100,16 @@ int main(int argc, char* argv[]) {
     GraphExecutor<taro::TaroCBV2> executor(*g_ptr, 0, num_threads, num_streams); 
     time_pair = executor.run(N, job);
   }
-  else if(mode == "TaroCBV3") {
-    GraphExecutor<taro::TaroCBV3> executor(*g_ptr, 0, num_threads, num_streams); 
+  else if(mode == "TaroCBTaskflow") {
+    GraphExecutor<taro::TaroCBTaskflow> executor(*g_ptr, 0, num_threads, num_streams); 
     time_pair = executor.run(N, job);
   }
   else if(mode == "TaroPV1") {
     GraphExecutor<taro::TaroPV1> executor(*g_ptr, 0, num_threads, num_streams); 
+    time_pair = executor.run(N, job);
+  }
+  else if(mode == "TaroPV2") {
+    GraphExecutor<taro::TaroPV2> executor(*g_ptr, 0, num_threads, num_streams); 
     time_pair = executor.run(N, job);
   }
   else if(mode == "cudaFlow") {

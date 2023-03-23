@@ -1,0 +1,132 @@
+nohup: ignoring input
+start running...
+mode: TaroCBV1, #threads: 2, #streams: 2, job: sleep, #degrees: 2, #levels: 10
+Construction time: 73 ms
+Execution time: 43540 ms
+Construction time: 75 ms
+Execution time: 43475 ms
+Construction time: 73 ms
+Execution time: 43535 ms
+ 
+mode: TaroCBV1, #threads: 2, #streams: 4, job: sleep, #degrees: 2, #levels: 10
+Construction time: 66 ms
+Execution time: 31111 ms
+Construction time: 71 ms
+Execution time: 31112 ms
+Construction time: 69 ms
+Execution time: 31111 ms
+ 
+mode: TaroCBV1, #threads: 2, #streams: 32, job: sleep, #degrees: 2, #levels: 10
+Construction time: 68 ms
+Execution time: 31112 ms
+Construction time: 74 ms
+Execution time: 31119 ms
+Construction time: 73 ms
+Execution time: 31113 ms
+ 
+mode: TaroCBV1, #threads: 4, #streams: 2, job: sleep, #degrees: 2, #levels: 10
+Construction time: 69 ms
+Execution time: 43076 ms
+Construction time: 71 ms
+Execution time: 43083 ms
+Construction time: 65 ms
+Execution time: 43083 ms
+ 
+mode: TaroCBV1, #threads: 4, #streams: 4, job: sleep, #degrees: 2, #levels: 10
+Construction time: 107 ms
+Execution time: 21757 ms
+Construction time: 66 ms
+Execution time: 21755 ms
+Construction time: 73 ms
+Execution time: 21758 ms
+ 
+mode: TaroCBV1, #threads: 4, #streams: 32, job: sleep, #degrees: 2, #levels: 10
+Construction time: 79 ms
+Execution time: 15777 ms
+Construction time: 77 ms
+Execution time: 15775 ms
+Construction time: 65 ms
+Execution time: 15776 ms
+ 
+#####################
+mode: TaroCBV2, #threads: 2, #streams: increase by algorithm, job: sleep, #degrees: 2, #levels: 10
+Construction time: 67 ms
+Execution time: 31504 ms
+Construction time: 73 ms
+Execution time: 31504 ms
+Construction time: 71 ms
+Execution time: 31512 ms
+ 
+mode: TaroCBV2, #threads: 4, #streams: increase by algorithm, job: sleep, #degrees: 2, #levels: 10
+Construction time: 85 ms
+Execution time: 16180 ms
+Construction time: 65 ms
+Execution time: 16181 ms
+Construction time: 75 ms
+Execution time: 16178 ms
+ 
+#####################
+mode: TaroPV1, #threads: 2, #streams: 2, job: sleep, #degrees: 2, #levels: 10
+Construction time: 70 ms
+Execution time: 47274 ms
+Construction time: 105 ms
+Execution time: 47291 ms
+Construction time: 66 ms
+Execution time: 47294 ms
+ 
+mode: TaroPV1, #threads: 2, #streams: 4, job: sleep, #degrees: 2, #levels: 10
+Construction time: 65 ms
+Execution time: 31403 ms
+Construction time: 83 ms
+Execution time: 31403 ms
+Construction time: 68 ms
+Execution time: 31403 ms
+ 
+mode: TaroPV1, #threads: 2, #streams: 32, job: sleep, #degrees: 2, #levels: 10
+Construction time: 70 ms
+Execution time: 31410 ms
+Construction time: 65 ms
+Execution time: 31330 ms
+Construction time: 98 ms
+Execution time: 31328 ms
+ 
+mode: TaroPV1, #threads: 4, #streams: 2, job: sleep, #degrees: 2, #levels: 10
+Construction time: 68 ms
+Execution time: 45079 ms
+Construction time: 72 ms
+Execution time: 44639 ms
+Construction time: 108 ms
+Execution time: 45026 ms
+ 
+mode: TaroPV1, #threads: 4, #streams: 4, job: sleep, #degrees: 2, #levels: 10
+Construction time: 77 ms
+Execution time: 23928 ms
+Construction time: 83 ms
+Execution time: 24010 ms
+Construction time: 71 ms
+Execution time: 24072 ms
+ 
+mode: TaroPV1, #threads: 4, #streams: 32, job: sleep, #degrees: 2, #levels: 10
+Construction time: 73 ms
+Execution time: 15887 ms
+Construction time: 70 ms
+Execution time: 15968 ms
+Construction time: 75 ms
+Execution time: 15899 ms
+ 
+#####################
+mode: cudaFlow, #threads: 2, #streams: default, job: sleep, #degrees: 2, #levels: 10
+Construction time: 0 ms
+Execution time: 73222 ms
+Construction time: 0 ms
+Execution time: 73225 ms
+Construction time: 0 ms
+Execution time: 73194 ms
+mode: cudaFlow, #threads: 4, #streams: default, job: sleep, #degrees: 2, #levels: 10
+Construction time: 0 ms
+Execution time: 36987 ms
+Construction time: 0 ms
+Execution time: 36997 ms
+Construction time: 0 ms
+Execution time: 36963 ms
+#####################
