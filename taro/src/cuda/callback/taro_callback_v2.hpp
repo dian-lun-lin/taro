@@ -1,12 +1,5 @@
 #pragma once
 
-#include "../../../declarations.h"
-#include "../../coro.hpp"
-#include "../../task.hpp"
-#include "../../worker.hpp"
-#include "../utility.hpp"
-#include "../../../../3rd-party/taskflow/notifier.hpp"
-#include "../../../../3rd-party/taskflow/wsq.hpp"
 #include <unordered_set> // for debug only
 
 namespace taro { // begin of namespace taro ===================================

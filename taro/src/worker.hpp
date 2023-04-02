@@ -1,8 +1,5 @@
 #pragma once
 
-#include "../../3rd-party/taskflow/notifier.hpp"
-#include "../../3rd-party/taskflow/wsq.hpp"
-
 namespace taro { // begin of namespace taro ===================================
 
 
@@ -50,7 +47,19 @@ class Worker {
   friend class TaroPV1;
   friend class TaroPV2;
 
+  friend void CUDART_CB _cuda_stream_callback_v3(void* void_args);
+
+  // for TaroCBV3
+  enum class Stage: unsigned {
+    INIT,
+    EXPLORE,
+    EXPLOIT,
+    SLEEP
+  };
+
   public:
+
+    size_t get_id() const { return _id; }
 
   private:
 
@@ -67,6 +76,13 @@ class Worker {
     size_t _id;
     size_t _vtm;
     std::default_random_engine _rdgen{std::random_device{}()};
+
+    // for TaroCBV3
+    std::condition_variable _cv;
+    std::atomic<Stage> _stage;
+
+    // for TaroCBV3
+    void _update_stage(Stage s) { _stage.store(s, std::memory_order_relaxed; }
 
 };
 

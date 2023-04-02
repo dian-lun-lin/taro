@@ -6,7 +6,7 @@ namespace taro { // begin of namespace taro ===================================
 
 // ==========================================================================
 //
-// Task Traits
+// TaskflowTask Traits
 //
 // ==========================================================================
 
@@ -16,7 +16,6 @@ class Worker;
 template <typename C>
 constexpr bool is_static_task_v = 
   std::is_invocable_r_v<void, C> &&
-  !std::is_invocable_r_v<Coro, C>;
 
 template <typename C>
 constexpr bool is_coro_task_v = 
@@ -43,28 +42,20 @@ constexpr auto get_index_v = get_index<T, Ts...>::value;
 
 // ==========================================================================
 //
-// Decalartion of class Task
+// Decalartion of class TaskflowTask
 //
-// Task stores a coroutine and handles dependencies of the task graph
+// TaskflowTask stores a coroutine and handles dependencies of the task graph
 // ==========================================================================
 
-class Task {
+class TaskflowTask {
 
-  friend class TaroCBV1;
-  friend class TaroCBV2;
-  friend class TaroCBV3;
-  friend class TaroCBTaskflow;
   friend class TaroCBTaskflowRuntime;
-  friend class TaroPV1;
-  friend class TaroPV2;
-  friend class TaskHandle;
-  friend void CUDART_CB _cuda_stream_callback_v2(void* void_args);
+  friend class TaskflowTaskHandle;
 
   struct CoroTask {
     template <typename C>
     CoroTask(C&&);
 
-    std::function<taro::Coro()> work;
     Coro coro;
     void resume() {
       coro._resume();
@@ -76,65 +67,37 @@ class Task {
   };
 
   struct StaticTask {
-    template <typename C>
-    StaticTask(C&&);
-
-    std::function<void()> work;
-  };
-
-  // for TaroPV1
-  struct cudaTask {
-    template <typename C>
-    cudaTask(C&&);
-
-    std::function<void(cudaWorker&)> work;
-  };
-
-  // for TaroCBV2, TaroCBV3
-  struct InnerTask {
-    template <typename C>
-    InnerTask(C&&);
-
-    std::function<void(Worker&)> work;
   };
 
   using handle_t = std::variant<
     std::monostate,
     CoroTask,
-    StaticTask,
-    cudaTask,
-    InnerTask
+    StaticTask
   >;
 
   public:
 
     template <typename... Args>
-    Task(size_t id, Args&&... args);
+    TaskflowTask(size_t id, Args&&... args);
 
 
-    Task() = default;
-    ~Task() = default;
+    TaskflowTask() = default;
+    ~TaskflowTask() = default;
 
-    // move construtor is for cudaTask and Innertask
-    // TODO: there must be a better implementation
-    Task(Task&& rhs):_handle{std::move(rhs._handle)} {}
-    Task& operator=(Task&& rhs) { _handle = std::move(rhs._handle);  return *this; }
-
-    // coroutine should not be copied
-    Task(const Task&) = delete;
-    Task& operator=(const Task&) = delete;
+    TaskflowTask(TaskflowTask&& rhs) = delete;
+    TaskflowTask& operator=(TaskflowTask&& rhs) = delete;
+    TaskflowTask(const TaskflowTask&) = delete;
+    TaskflowTask& operator=(const TaskflowTask&) = delete;
 
     constexpr static auto PLACEHOLDER   = get_index_v<std::monostate, handle_t>;
     constexpr static auto COROTASK   = get_index_v<CoroTask, handle_t>;
     constexpr static auto STATICTASK = get_index_v<StaticTask, handle_t>;
-    constexpr static auto CUDATASK = get_index_v<cudaTask, handle_t>;
-    constexpr static auto INNERTASK = get_index_v<InnerTask, handle_t>;
 
   private:
 
-    void _precede(Task* task);
-    std::vector<Task*> _succs;
-    std::vector<Task*> _preds;
+    void _precede(TaskflowTask* task);
+    std::vector<TaskflowTask*> _succs;
+    std::vector<TaskflowTask*> _preds;
     std::atomic<int> _join_counter{0};
     size_t _id;
 
@@ -145,35 +108,26 @@ class Task {
 };
 
 template <typename C>
-Task::StaticTask::StaticTask(C&& c): work{std::forward<C>(c)} {
+TaskflowTask::StaticTask::StaticTask() {
 }
 
 template <typename C>
-Task::CoroTask::CoroTask(C&& c): 
-  work{std::forward<C>(c)}, coro{work()}
+TaskflowTask::CoroTask::CoroTask(C&& c): 
+  coro{c()}
 {
-}
-
-template <typename C>
-Task::cudaTask::cudaTask(C&& c): 
-  work{std::forward<C>(c)} {
-}
-
-template <typename C>
-Task::InnerTask::InnerTask(C&& c): work{std::forward<C>(c)} {
 }
 
 // ==========================================================================
 //
-// Definition of class Task
+// Definition of class TaskflowTask
 //
 // ==========================================================================
 
 template <typename... Args>
-Task::Task(size_t id, Args&&... args):_id{id}, _handle{std::forward<Args>(args)...} {
+TaskflowTask::TaskflowTask(size_t id, Args&&... args):_id{id}, _handle{std::forward<Args>(args)...} {
 }
 
-void Task::_precede(Task* tp) {
+void TaskflowTask::_precede(TaskflowTask* tp) {
   _succs.push_back(tp);
   tp->_preds.push_back(this);
   tp->_join_counter.fetch_add(1, std::memory_order_relaxed);
@@ -181,49 +135,49 @@ void Task::_precede(Task* tp) {
 
 // ==========================================================================
 //
-// Decalartion of class TaskHandle
+// Decalartion of class TaskflowTaskHandle
 //
 // ==========================================================================
 
-class TaskHandle {
+class TaskflowTaskHandle {
 
   public:
 
-    TaskHandle();
-    explicit TaskHandle(Task* tp);
-    TaskHandle(TaskHandle&&) = default;
-    TaskHandle(const TaskHandle&) = default;
-    TaskHandle& operator = (const TaskHandle&) = default;
-    TaskHandle& operator = (TaskHandle&&) = default;
-    ~TaskHandle() = default;    
+    TaskflowTaskHandle();
+    explicit TaskflowTaskHandle(TaskflowTask* tp);
+    TaskflowTaskHandle(TaskflowTaskHandle&&) = default;
+    TaskflowTaskHandle(const TaskflowTaskHandle&) = default;
+    TaskflowTaskHandle& operator = (const TaskflowTaskHandle&) = default;
+    TaskflowTaskHandle& operator = (TaskflowTaskHandle&&) = default;
+    ~TaskflowTaskHandle() = default;    
 
-    TaskHandle& precede(TaskHandle ch);
+    TaskflowTaskHandle& precede(TaskflowTaskHandle ch);
 
-    TaskHandle& succeed(TaskHandle ch);
+    TaskflowTaskHandle& succeed(TaskflowTaskHandle ch);
 
   private:
 
-    Task* _tp;
+    TaskflowTask* _tp;
 };
 
 // ==========================================================================
 //
-// Definition of class TaskHandle
+// Definition of class TaskflowTaskHandle
 //
 // ==========================================================================
 //
-TaskHandle::TaskHandle(): _tp{nullptr} {
+TaskflowTaskHandle::TaskflowTaskHandle(): _tp{nullptr} {
 }
 
-TaskHandle::TaskHandle(Task* tp): _tp{tp} {
+TaskflowTaskHandle::TaskflowTaskHandle(TaskflowTask* tp): _tp{tp} {
 }
 
-TaskHandle& TaskHandle::precede(TaskHandle ch) {
+TaskflowTaskHandle& TaskflowTaskHandle::precede(TaskflowTaskHandle ch) {
   _tp->_precede(ch._tp);
   return *this;
 }
 
-TaskHandle& TaskHandle::succeed(TaskHandle ch) {
+TaskflowTaskHandle& TaskflowTaskHandle::succeed(TaskflowTaskHandle ch) {
   ch._tp->_precede(_tp);
   return *this;
 }

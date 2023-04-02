@@ -1,11 +1,5 @@
 #pragma once
 
-#include "../../../declarations.h"
-#include "../../coro.hpp"
-#include "../../task.hpp"
-#include "../../worker.hpp"
-#include "../utility.hpp"
-
 namespace taro { // begin of namespace taro ===================================
 
 class TaroCBTaskflow;
@@ -51,7 +45,7 @@ class TaroCBTaskflow {
     template <typename C, std::enable_if_t<is_coro_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
 
-    auto suspend();
+    //auto suspend();
 
     template <typename C, std::enable_if_t<is_kernel_v<C>, void>* = nullptr>
     auto cuda_suspend(C&&);
@@ -66,9 +60,7 @@ class TaroCBTaskflow {
   private:
 
     void _process(const std::vector<Task*>& tps);
-
-    void _enqueue(Task* tp);
-    void _enqueue(const std::vector<Task*>& tps);
+    void _process(Task* tp);
 
     void _invoke_coro_task(Task* tp);
     void _invoke_static_task(Task* tp);
@@ -88,16 +80,14 @@ class TaroCBTaskflow {
     std::vector<size_t> _in_stream_tasks;
 
     // TODO: may change to priority queue
-    std::queue<Task*> _que;
 
-    std::mutex _qmtx;
     std::mutex _stream_mtx;
     std::mutex _kernel_mtx;
-    std::condition_variable _cv;
 
-    std::atomic<bool> _stop{false};
     std::atomic<size_t> _finished{0};
     std::atomic<size_t> _cbcnt{0};
+
+    std::promise<void> _prom;
 
     tf::Executor _executor;
 };
@@ -114,13 +104,8 @@ void CUDART_CB _cuda_stream_callback_taskflow(void* void_args) {
 
   auto* taro = data->taro;
   auto* prom = data->prom;
-  // after enqueue, cf may finish the task and be destructed
-  // in that case _cv is destructed before we call notify in the callback
-  // use cbcnt to check if number of callback is zero
-  taro->_enqueue(taro->_tasks[prom->_id].get());
-  // std::scope_lock lock(taro->_qmtx); // TODO: do we need this lock?
+  taro->_process(taro->_tasks[prom->_id].get());
   taro->_cbcnt.fetch_sub(1);
-  taro->_cv.notify_one();
 }
 
 // ==========================================================================
@@ -150,32 +135,19 @@ void TaroCBTaskflow::wait() {
 
 void TaroCBTaskflow::schedule() {
 
+  auto fu = _prom.get_future();
+
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
     if(t->_join_counter.load() == 0) {
       srcs.push_back(t.get());
     }
   }
-  _enqueue(srcs);
+  _process(srcs);
 
-  while(true) {
-    std::vector<Task*> tps;
-    {
-      std::unique_lock lock(_qmtx);
-      _cv.wait(lock, [this]{ return (_stop && _cbcnt == 0) || !_que.empty(); });
-      if(_stop && _cbcnt == 0) {
-        return;
-      }
-      while(!_que.empty()) {
-        tps.emplace_back(_que.front());
-        _que.pop();
-      }
-    }
+  fu.get();
 
-    if(!tps.empty()) {
-      _process(tps);
-    }
-  }
+  while(_cbcnt != 0) {}
 }
 
 template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
@@ -225,19 +197,19 @@ auto TaroCBTaskflow::cuda_suspend(C&& c) {
   return awaiter{this, std::forward<C>(c)};
 }
 
-auto TaroCBTaskflow::suspend() {
-  struct awaiter: std::suspend_always {
-    TaroCBTaskflow* _taro;
-    explicit awaiter(TaroCBTaskflow* taro) noexcept : _taro{taro} {}
-    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
-      auto id = coro_handle.promise()._id;
-      _taro->_enqueue(_taro->_tasks[id].get());
-      _taro->_cv.notify_one();
-    }
-  };
+//auto TaroCBTaskflow::suspend() {
+  //struct awaiter: std::suspend_always {
+    //TaroCBTaskflow* _taro;
+    //explicit awaiter(TaroCBTaskflow* taro) noexcept : _taro{taro} {}
+    //void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
+      //auto id = coro_handle.promise()._id;
+      //_taro->_enqueue(_taro->_tasks[id].get());
+      //_taro->_cv.notify_one();
+    //}
+  //};
 
-  return awaiter{this};
-}
+  //return awaiter{this};
+//}
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
 TaskHandle TaroCBTaskflow::emplace(C&& c) {
@@ -252,22 +224,6 @@ TaskHandle TaroCBTaskflow::emplace(C&& c) {
   std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
-}
-
-void TaroCBTaskflow::_enqueue(Task* tp) {
-  {
-    std::scoped_lock lock(_qmtx);
-    _que.push(tp);
-  }
-}
-
-void TaroCBTaskflow::_enqueue(const std::vector<Task*>& tps) {
-  {
-    std::scoped_lock lock(_qmtx);
-    for(auto* tp: tps) {
-      _que.push(tp);
-    }
-  }
 }
 
 void TaroCBTaskflow::_process(const std::vector<Task*>& tps) {
@@ -291,18 +247,33 @@ void TaroCBTaskflow::_process(const std::vector<Task*>& tps) {
   }
 }
 
+void TaroCBTaskflow::_process(Task* tp) {
+
+  switch(tp->_handle.index()) {
+    case Task::STATICTASK: {
+      _invoke_static_task(tp);
+    }
+    break;
+
+    case Task::COROTASK: {
+      _invoke_coro_task(tp);
+    }
+    break;
+
+    default:
+      assert(false);
+  }
+}
+
 void TaroCBTaskflow::_invoke_static_task(Task* tp) {
   _executor.silent_async([this, tp](){
     std::get_if<Task::StaticTask>(&tp->_handle)->work();
     for(auto succp: tp->_succs) {
       if(succp->_join_counter.fetch_sub(1) == 1) {
-        _enqueue(succp);
-        _cv.notify_one();
+        _process(succp);
       }
       if(_finished.fetch_add(1) + 1 == _tasks.size()) {
-        std::scoped_lock lock(_qmtx);
-        _stop = true;
-        _cv.notify_one();
+        _prom.set_value();
       }
     }
   });
@@ -331,14 +302,11 @@ void TaroCBTaskflow::_invoke_coro_task(Task* tp) {
     if(final) {
       for(auto succp: tp->_succs) {
         if(succp->_join_counter.fetch_sub(1) == 1) {
-          _enqueue(succp);
-          _cv.notify_one();
+          _process(succp);
         }
       }
       if(_finished.fetch_add(1) + 1 == _tasks.size()) {
-        std::scoped_lock lock(_qmtx);
-        _stop = true;
-        _cv.notify_one();
+        _prom.set_value();
       }
     }
   });

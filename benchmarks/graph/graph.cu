@@ -1,6 +1,8 @@
+#include <taro.hpp>
 #include "graph.hpp"
 #include "graph_executor.hpp"
 #include "cudaflow_graph_executor.hpp"
+#include "fiber_graph_executor.hpp"
 
 #include <3rd-party/CLI11/CLI11.hpp>
 
@@ -28,7 +30,7 @@ int main(int argc, char* argv[]) {
   app.add_option(
     "-m, --mode", 
     mode, 
-    "select mode (cudaFlow, TaroCBV1, TaroCBV2, TaroCBV3, TaroPV1, TaroPV2), default is TaroPV1."
+    "select mode (cudaFlow, TaroCBV1, TaroCBV2, TaroCBTaskflow, TaroPV1, TaroPV2, Fiber), default is TaroPV1."
   );
 
   size_t N{1024};
@@ -100,6 +102,10 @@ int main(int argc, char* argv[]) {
     GraphExecutor<taro::TaroCBV2> executor(*g_ptr, 0, num_threads, num_streams); 
     time_pair = executor.run(N, job);
   }
+  else if(mode == "TaroCBV3") {
+    GraphExecutor<taro::TaroCBV3> executor(*g_ptr, 0, num_threads, num_streams); 
+    time_pair = executor.run(N, job);
+  }
   else if(mode == "TaroCBTaskflow") {
     GraphExecutor<taro::TaroCBTaskflow> executor(*g_ptr, 0, num_threads, num_streams); 
     time_pair = executor.run(N, job);
@@ -110,6 +116,10 @@ int main(int argc, char* argv[]) {
   }
   else if(mode == "TaroPV2") {
     GraphExecutor<taro::TaroPV2> executor(*g_ptr, 0, num_threads, num_streams); 
+    time_pair = executor.run(N, job);
+  }
+  else if(mode == "Fiber") {
+    FiberGraphExecutor executor(*g_ptr, 0, num_threads);
     time_pair = executor.run(N, job);
   }
   else if(mode == "cudaFlow") {
