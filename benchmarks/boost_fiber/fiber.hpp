@@ -1,3 +1,5 @@
+#pragma once
+
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -32,6 +34,8 @@ class FiberTask {
 
     template <typename C>
     explicit FiberTask(FiberTaskScheduler& sched, C&& c);
+
+    ~FiberTask() = default;
 
   private:
 
@@ -89,13 +93,13 @@ class FiberTaskScheduler {
   public:
 
     FiberTaskScheduler(size_t num_threads);
+    ~FiberTaskScheduler();
   
-    void shutdown();
-
     template <typename C>
     FiberTaskHandle emplace(C&& c);
 
     void schedule();
+    void wait();
 
   private:
 
@@ -109,9 +113,6 @@ class FiberTaskScheduler {
   
 };
 
-//static std::size_t fiber_count{ 1 };
-//static std::mutex mtx_count{};
-//static boost::fibers::condition_variable_any cnd_count{};
 // ==========================================================================
 //
 // Definition of class FiberTask
@@ -178,10 +179,16 @@ FiberTaskScheduler::FiberTaskScheduler(size_t num_threads): _num_threads{num_thr
   _threads.reserve(num_threads);
 }
 
+FiberTaskScheduler::~FiberTaskScheduler() {
+  for(auto task: _tasks) {
+    delete task;
+  }
+}
+
 template <typename C>
 FiberTaskHandle FiberTaskScheduler::emplace(C&& c) {
   _tasks.emplace_back(new FiberTask(*this, std::forward<C>(c)));
-  _tasks.back()->_id = _tasks.size();
+  _tasks.back()->_id = _tasks.size() - 1;
   return FiberTaskHandle{_tasks.back()};
 }
 
@@ -206,14 +213,15 @@ void FiberTaskScheduler::schedule() {
     });
   }
 
-  boost::fibers::use_scheduling_algorithm< boost::fibers::algo::work_stealing >(_num_threads);
+  boost::fibers::use_scheduling_algorithm<boost::fibers::algo::work_stealing>(_num_threads);
 }
 
-void FiberTaskScheduler::shutdown() {
+void FiberTaskScheduler::wait() {
   {
     std::unique_lock<std::mutex> lock(_mtx);
     _cv.wait(lock, [this](){ return _stop.load(); } ); 
   }
+  BOOST_ASSERT(_stop.load());
 
   for(auto& t: _threads) {
     t.join();
