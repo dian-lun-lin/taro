@@ -225,7 +225,7 @@ std::optional<T> WorkStealingQueue<T>::pop(unsigned p) {
 // steal task from LOW to HIGH
 template <typename T>
 std::optional<T> WorkStealingQueue<T>::steal() {
-  for(unsigned i = TARO_MAX_PRIORITY; i > 0; --i) {
+  for(unsigned i = TARO_MAX_PRIORITY - 1; i > 0; --i) {
     if(auto s = steal(i); s) {
       return s;
     }

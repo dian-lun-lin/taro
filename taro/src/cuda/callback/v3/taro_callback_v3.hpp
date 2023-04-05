@@ -82,7 +82,6 @@ class TaroCBV3 {
     void _process(Worker& worker, Task* tp);
 
     void _enqueue(Worker& worker, Task* tp, TaskPriority p = TaskPriority::LOW);
-    void _enqueue(Task* tp, TaskPriority p = TaskPriority::LOW);
 
     void _invoke_coro_task(Worker& worker, Task* tp);
     void _invoke_static_task(Worker& worker, Task* tp);
@@ -111,8 +110,8 @@ class TaroCBV3 {
     std::atomic<size_t> _finished{0};
     std::atomic<size_t> _pending_tasks{0};
     std::atomic<size_t> _cbcnt{0};
+    size_t _cnt{0};
     size_t _MAX_STEALS;
-    size_t _cnt;
 };
 
 // ==========================================================================
@@ -147,6 +146,7 @@ void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
     cf->_enqueue(*worker, cf->_tasks[prom->_id].get(), TaskPriority::HIGH);
     worker->_wait_task.release();
   }
+
   cf->_cbcnt.fetch_sub(1);
 }
 
@@ -172,15 +172,15 @@ TaroCBV3::TaroCBV3(size_t num_threads, size_t num_streams):
     cudaStreamCreateWithFlags(&(_streams[i].st), cudaStreamNonBlocking);
   }
 
-  std::latch initial_done{num_threads};
+  // TODO num_threads has warning (invalid conversion: unsigned long to long)
+  std::latch initial_done{_workers.size()};
   std::mutex wmtx;
-  size_t cnt{0};
 
   for(size_t id = 0; id < num_threads; ++id) {
     auto& worker = _workers[id];
     worker._id = id;
 
-    _threads[id] = std::jthread([this, id, num_threads, &worker, &cnt, &initial_done, &wmtx](const std::stop_token &stop) {
+    _threads[id] = std::jthread([this, id, num_threads, &worker, &initial_done, &wmtx](const std::stop_token &stop) {
 
       worker._thread = &_threads[id];
 
@@ -221,14 +221,14 @@ void TaroCBV3::_exploit_task(Worker& worker) {
       _process(worker, task.value());
     }
 
-  _exploit_task_low:
-    while(auto task = worker._que.pop(TaskPriority::LOW)) {
-      _pending_tasks.fetch_sub(1, std::memory_order_release);
-      _process(worker, task.value());
-      if(!worker._que.empty(TaskPriority::HIGH)) {
-        goto _exploit_task_high;
-      }
+  //_exploit_task_low:
+  while(auto task = worker._que.pop(TaskPriority::LOW)) {
+    _pending_tasks.fetch_sub(1, std::memory_order_release);
+    _process(worker, task.value());
+    if(!worker._que.empty(TaskPriority::HIGH)) {
+      goto _exploit_task_high;
     }
+  }
 
 }
 
@@ -243,7 +243,7 @@ bool TaroCBV3::_explore_task(Worker& worker, const std::stop_token& stop) {
     // TODO: difference between round robin and random?
     for(size_t i = 1; i < _threads.size(); ++i) {
       size_t idx = (worker._id + i) % _threads.size();
-      auto opt = _workers[idx]._que.steal(); // from LOW to HIGH
+      auto opt = _workers[idx]._que.steal(); // steal task from priority LOW to priority HIGH
       if(opt) {
         _pending_tasks.fetch_sub(1, std::memory_order_release);
         _process(worker, opt.value());
@@ -290,10 +290,14 @@ void TaroCBV3::schedule() {
     }
   }
 
+  // enqueue tasks before wake up workers to avoid data racing (i.e., worker._que.push())
   for(auto src: srcs) {
-    _enqueue(src);
     auto& worker = _workers[_cnt++ % _threads.size()];
-    worker._wait_task.release();
+    _enqueue(worker, src);
+  }
+
+  for(size_t w = 0; w < std::min(_workers.size(), _cnt); ++w) {
+    _workers[w]._wait_task.release();
   }
 }
 
@@ -376,11 +380,11 @@ void TaroCBV3::_enqueue(Worker& worker, Task* tp, TaskPriority p) {
 }
 
 // this enqueue is only used by main thread
-void TaroCBV3::_enqueue(Task* tp, TaskPriority p) {
-  auto& worker = _workers[_cnt++ % _threads.size()];
-  worker._que.push(tp, p);
-  _pending_tasks.fetch_add(1, std::memory_order_relaxed);
-}
+//void TaroCBV3::_enqueue(Task* tp, TaskPriority p) {
+  //auto& worker = _workers[_cnt++ % _threads.size()];
+  //worker._que.push(tp, p);
+  //_pending_tasks.fetch_add(1, std::memory_order_relaxed);
+//}
 
 void TaroCBV3::_process(Worker& worker, Task* tp) {
 
@@ -403,7 +407,7 @@ void TaroCBV3::_invoke_static_task(Worker& worker, Task* tp) {
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
       _enqueue(worker, succp);
-      size_t idx = (worker._id + cnt++) % _threads.size(); // "nofity" one
+      size_t idx = (worker._id + cnt++) % _workers.size(); // "nofity" one
       _workers[idx]._wait_task.release(); // we release the worker thread first, otherwise it may go to sleep
     }
   }
@@ -427,20 +431,20 @@ void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
   // which in turn causing data race
   // That is, two same coroutines are executed in parallel by t1 and t2
   // hence we use lock in each coro to check if a coroutine is in busy used 
-  // final has similar issue as well
-  bool final{false};
+  // done() has similar issue
+  bool done{false};
   {
     std::scoped_lock lock(coro_t->coro._mtx);
     coro_t->resume();
-    final = coro_t->coro._coro_handle.promise()._final;
+    done = coro_t->done();
   }
 
-  if(final) {
+  if(done) {
     size_t cnt{0};
     for(auto succp: tp->_succs) {
       if(succp->_join_counter.fetch_sub(1) == 1) {
         _enqueue(worker, succp);
-        size_t idx = (worker._id + cnt++) % _threads.size(); // "nofity" one
+        size_t idx = (worker._id + cnt++) % _workers.size(); // "nofity" one
         _workers[idx]._wait_task.release(); // we release the worker thread first, otherwise it may go to sleep
       }
     }

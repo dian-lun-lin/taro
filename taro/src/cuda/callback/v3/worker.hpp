@@ -15,12 +15,6 @@ class Worker {
 
   friend void CUDART_CB _cuda_stream_callback_v3(void* void_args);
 
-  // for TaroCBV3
-  enum class Stage: unsigned {
-    ACTIVE,
-    SLEEP
-  };
-
   public:
 
     size_t get_id() const { return _id; }
@@ -31,8 +25,6 @@ class Worker {
     
     std::jthread* _thread;
     size_t _id;
-
-    Stage _stage;
     std::mutex _mtx;
     std::binary_semaphore _wait_task{0};
 };
