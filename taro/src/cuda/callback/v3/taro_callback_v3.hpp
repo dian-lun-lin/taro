@@ -91,6 +91,8 @@ class TaroCBV3 {
     void _exploit_task(Worker& worker);
     bool _explore_task(Worker& worker, const std::stop_token& stop);
 
+    void _request_stop();
+
     bool _is_DAG(
       Task* tp,
       std::vector<bool>& visited,
@@ -137,15 +139,15 @@ void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
 
 
   {
-    // high priory queue is owned by the callback function
+    // high priortiy queue is owned by the callback function
     // Due to CUDA runtime, we cannot guarntee whether the cuda callback function is called sequentially
     // we need a lock to atomically enqueue the task
     // note that there is no lock in enqueue functions
     
     std::scoped_lock lock(worker->_mtx);
     cf->_enqueue(*worker, cf->_tasks[prom->_id].get(), TaskPriority::HIGH);
-    worker->_wait_task.release();
   }
+  worker->_wait_task.release();
 
   cf->_cbcnt.fetch_sub(1);
 }
@@ -241,8 +243,8 @@ bool TaroCBV3::_explore_task(Worker& worker, const std::stop_token& stop) {
   do {
 
     // TODO: difference between round robin and random?
-    for(size_t i = 1; i < _threads.size(); ++i) {
-      size_t idx = (worker._id + i) % _threads.size();
+    for(size_t i = 1; i < _workers.size(); ++i) {
+      size_t idx = (worker._id + i) % _workers.size();
       auto opt = _workers[idx]._que.steal(); // steal task from priority LOW to priority HIGH
       if(opt) {
         _pending_tasks.fetch_sub(1, std::memory_order_release);
@@ -413,10 +415,7 @@ void TaroCBV3::_invoke_static_task(Worker& worker, Task* tp) {
   }
 
   if(_finished.fetch_add(1) + 1 == _tasks.size()) {
-    for(auto& w: _workers) {
-      w._thread->request_stop();
-      w._wait_task.release();
-    }
+    _request_stop();
   }
 }
 
@@ -446,15 +445,20 @@ void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
         _enqueue(worker, succp);
         size_t idx = (worker._id + cnt++) % _workers.size(); // "nofity" one
         _workers[idx]._wait_task.release(); // we release the worker thread first, otherwise it may go to sleep
+        // TODO: unlike nofity that always wake up waiting thread, the release function may wake up a future waiting thread
       }
     }
 
     if(_finished.fetch_add(1) + 1 == _tasks.size()) {
-      for(auto& w: _workers) {
-        w._thread->request_stop();
-        w._wait_task.release();
-      }
+      _request_stop();
     }
+  }
+}
+
+void TaroCBV3::_request_stop() {
+  for(auto& w: _workers) {
+    w._thread->request_stop();
+    w._wait_task.release();
   }
 }
 

@@ -103,32 +103,48 @@ template <typename T>
 WorkStealingQueue<T>::WorkStealingQueue(int64_t c) {
   assert(c && (!(c & (c-1))));
 
-  for(unsigned i = 0; i < TARO_MAX_PRIORITY; ++i) {
-    _top[i].store(0, std::memory_order_relaxed);
-    _bottom[i].store(0, std::memory_order_relaxed);
-    _array[i].store(new Array{c}, std::memory_order_relaxed);
-    _garbage[i].reserve(32);
+  // duff's device unrolling
+  switch(0) {
+    case 0: 
+      _top[0].store(0, std::memory_order_relaxed);
+      _bottom[0].store(0, std::memory_order_relaxed);
+      _array[0].store(new Array{c}, std::memory_order_relaxed);
+      _garbage[0].reserve(32);
+    case 1:
+      _top[1].store(0, std::memory_order_relaxed);
+      _bottom[1].store(0, std::memory_order_relaxed);
+      _array[1].store(new Array{c}, std::memory_order_relaxed);
+      _garbage[1].reserve(32);
   }
 }
 
 // Destructor
 template <typename T>
 WorkStealingQueue<T>::~WorkStealingQueue() {
-  for(unsigned i = 0; i < TARO_MAX_PRIORITY; ++i) {
-    for(auto a : _garbage[i]) {
-      delete a;
-    }
-    delete _array[i].load();
+  // duff's device unrolling
+  switch(0) {
+    case 0: 
+      for(auto a : _garbage[0]) {
+        delete a;
+      }
+      delete _array[0].load();
+    case 1: 
+      for(auto a : _garbage[1]) {
+        delete a;
+      }
+      delete _array[1].load();
   }
 }
   
 // Function: empty
 template <typename T>
 bool WorkStealingQueue<T>::empty() const noexcept {
-  for(unsigned i = 0; i < TARO_MAX_PRIORITY; ++i) {
-    if(!empty(i)) {
-      return false;
-    }
+  // duff's device unrolling
+  switch(0) {
+    case 0: 
+      if(!empty(0)) { return false; }
+    case 1: 
+      if(!empty(1)) { return false; }
   }
   return true;
 }
@@ -145,8 +161,12 @@ bool WorkStealingQueue<T>::empty(unsigned p) const noexcept {
 template <typename T>
 size_t WorkStealingQueue<T>::size() const noexcept {
   size_t s{0};
-  for(unsigned i = 0; i < TARO_MAX_PRIORITY; ++i) {
-    s += size(i);
+  // duff's device unrolling
+  switch(0) {
+    case 0: 
+      s += size(0);
+    case 1: 
+      s += size(1);
   }
   return s;
 }
@@ -181,12 +201,21 @@ void WorkStealingQueue<T>::push(O&& o, unsigned p) {
 }
 
 // Function: pop
+// pop from HIGH to LOW
+// HIGH: 0
+// LOW: 1
 template <typename T>
 std::optional<T> WorkStealingQueue<T>::pop() {
-  for(unsigned i = 0; i < TARO_MAX_PRIORITY; ++i) {
-    if(auto p = pop(i); p) {
-      return p;
-    }
+  // duff's device unrolling
+  switch(0) {
+    case 0: 
+      if(auto s = pop(0); s) {
+        return s;
+      }
+    case 1: 
+      if(auto s = pop(1); s) {
+        return s;
+      }
   }
   return std::nullopt;
 }
@@ -223,16 +252,20 @@ std::optional<T> WorkStealingQueue<T>::pop(unsigned p) {
 
 // Function: steal
 // steal task from LOW to HIGH
+// HIGH: 0
+// LOW: 1
 template <typename T>
 std::optional<T> WorkStealingQueue<T>::steal() {
-  for(unsigned i = TARO_MAX_PRIORITY - 1; i > 0; --i) {
-    if(auto s = steal(i); s) {
-      return s;
-    }
-
-  }
-  if(auto s = steal(0); s) {
-    return s;
+  // duff's device unrolling
+  switch(1) {
+    case 1: 
+      if(auto s = steal(1); s) {
+        return s;
+      }
+    case 0: 
+      if(auto s = steal(0); s) {
+        return s;
+      }
   }
   return std::nullopt;
 }
@@ -263,8 +296,12 @@ std::optional<T> WorkStealingQueue<T>::steal(unsigned p) {
 template <typename T>
 int64_t WorkStealingQueue<T>::capacity() const noexcept {
   size_t c{0};
-  for(unsigned i = 0; i < TARO_MAX_PRIORITY; ++i) {
-    c += capacity(i);
+  // duff's device unrolling
+  switch(0) {
+    case 0:
+      c += capacity(0);
+    case 1:
+      c += capacity(1);
   }
   return c;
 }
