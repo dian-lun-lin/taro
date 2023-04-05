@@ -41,9 +41,11 @@ endif()
 
 # Args
 option(TARO_BUILD_TESTS "Enables build of tests" ON)
+option(TARO_BUILD_BENCHMARKS "Enables build of benchmarks" ON)
 
 # installation path
 set(TARO_UTEST_DIR ${PROJECT_SOURCE_DIR}/unittests)
+set(TARO_BENCHMARKS_DIR ${PROJECT_SOURCE_DIR}/benchmarks)
 set(TARO_3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd-party)
 
 # include test
@@ -136,40 +138,6 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 )
 #-----------------------
 
-# test
-if(${TARO_BUILD_TESTS})
-
-enable_testing()
-include(${TARO_3RD_PARTY_DIR}/doctest/doctest.cmake)
-
-message(STATUS "Building unit tests ...")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TARO_UTEST_DIR})
-
-#add_executable(simple_cpu ${TARO_UTEST_DIR}/simple.cpp)
-#target_include_directories(simple_cpu PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
-#target_link_libraries(simple_cpu Threads::Threads)
-#doctest_discover_tests(simple_cpu)
-
-cuda_add_executable(test_linear_chain ${TARO_UTEST_DIR}/linear_chain.cu)
-target_include_directories(test_linear_chain PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
-target_link_libraries(test_linear_chain Threads::Threads cuda)
-target_link_libraries(test_linear_chain boost_fiber boost_context)
-doctest_discover_tests(test_linear_chain)
-
-cuda_add_executable(test_independent ${TARO_UTEST_DIR}/independent.cu)
-target_include_directories(test_independent PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
-target_link_libraries(test_independent Threads::Threads cuda)
-target_link_libraries(test_independent boost_fiber boost_context)
-doctest_discover_tests(test_independent)
-
-#cuda_add_executable(test_map_reduce ${TARO_UTEST_DIR}/map_reduce.cu)
-#target_include_directories(test_map_reduce PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
-#target_link_libraries(test_map_reduce Threads::Threads)
-#doctest_discover_tests(test_map_reduce)
-
-endif()
-
-
 #find -arch
 include(FindCUDA)
 set(CUDA_ARCH_LIST Auto CACHE STRING
@@ -180,15 +148,21 @@ Set to Auto for automatic detection (default)."
 cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS ${CUDA_ARCH_LIST})
 list(APPEND CUDA_NVCC_FLAGS ${CUDA_ARCH_FLAGS})
 
-# add executables
-message(STATUS "building executables ...")
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
+# test
+if(${TARO_BUILD_TESTS})
 
-cuda_add_executable(graph ${PROJECT_SOURCE_DIR}/benchmarks/graph/graph.cu)
-target_compile_options(graph PRIVATE  $<$<COMPILE_LANGUAGE:CUDA>:-fcoroutines)
-target_link_libraries(graph cuda)
-target_link_libraries(graph boost_fiber boost_context)
-#set_property(TARGET pipeline PROPERTY CUDA_STANDARD 20)
-#set_property(TARGET to_binary PROPERTY CUDA_STANDARD 17)
+message(STATUS "Building unit tests ...")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TARO_UTEST_DIR})
+add_subdirectory(unittests)
+
+endif()
+
+
+# benchmark
+if(TARO_BUILD_BENCHMARKS)
+message(STATUS "building benchmarks ...")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TARO_BENCHMARK_DIR})
+add_subdirectory(benchmarks)
+endif()
 
