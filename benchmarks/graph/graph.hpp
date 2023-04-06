@@ -23,17 +23,34 @@
 #include <cassert>
 
 // GPU sleep kernel
-__global__ void cuda_sleep(
-   int ms
+__global__ void cuda_loop(
+  size_t ms
 ) {
-  for (int i = 0; i < ms; i++) {
-    __nanosleep(1000000U);
-  }
+  long long sleep_cycles = 1350000 * ms; // TODO: 1350MHZ is for 2080ti. change it to clock for arbitrary GPU 
+  long long start = clock64();
+  long long cycles_elapsed;
+  do { 
+    cycles_elapsed = clock64() - start; 
+  } while (cycles_elapsed < sleep_cycles);
 }
 
 // CPU task
-void cpu_sleep(
-  int ms
-) {
-  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+void cpu_loop(
+size_t ms) {
+  auto start = std::chrono::steady_clock::now();
+  int a = 1;
+  int b = a * 10 % 7;
+  while(b != 0)
+  {
+    a = b * 10;
+    b = a % 7;
+    if(std::chrono::steady_clock::now() - start > std::chrono::milliseconds(ms)) 
+      break;
+  }
 }
+
+
+
+
+
+

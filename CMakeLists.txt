@@ -45,7 +45,7 @@ option(TARO_BUILD_BENCHMARKS "Enables build of benchmarks" ON)
 
 # installation path
 set(TARO_UTEST_DIR ${PROJECT_SOURCE_DIR}/unittests)
-set(TARO_BENCHMARKS_DIR ${PROJECT_SOURCE_DIR}/benchmarks)
+set(TARO_BENCHMARK_DIR ${PROJECT_SOURCE_DIR}/benchmarks)
 set(TARO_3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd-party)
 
 # include test

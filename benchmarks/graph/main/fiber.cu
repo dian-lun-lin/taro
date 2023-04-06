@@ -17,18 +17,25 @@ int main(int argc, char* argv[]) {
     "select graph(SerialGraph, ParallelGraph, Tree, RandomDAG, MapReduce, Wavefront), default is ParallelGraph" 
   );
 
-  std::string job{"sleep"};
+  //std::string job{"loop"};
+  //app.add_option(
+    //"-j, --job",
+    //job,
+    //"select job(matmul, cudaflow_reduce, loop), default is loop"
+  //);
+
+  size_t cpu_time{2};
   app.add_option(
-    "-j, --job",
-    job,
-    "select job(matmul, cudaflow_reduce, sleep), default is sleep"
+    "--cpu_overhead", 
+    cpu_time, 
+    "set CPU overhead for each task (ms)"
   );
 
-  size_t N{1024};
+  size_t gpu_time{2};
   app.add_option(
-    "-n, --problem_size", 
-    N, 
-    "set problem size. ignore this arg if using sleep job"
+    "--gpu_overhead", 
+    gpu_time, 
+    "set GPU overhead for each task (ms)"
   );
 
   std::vector<int> args;
@@ -43,6 +50,13 @@ int main(int argc, char* argv[]) {
     "-t, --num_threads",
     num_threads,
     "number of threads"
+  );
+
+  size_t num_streams;
+  app.add_option(
+    "-s, --num_streams",
+    num_streams,
+    "number of streams to run. ignore this arg if using TaroCBV2"
   );
 
   CLI11_PARSE(app, argc, argv);
@@ -79,7 +93,7 @@ int main(int argc, char* argv[]) {
   std::pair<double, double> time_pair;
 
   GraphExecutor executor(*g_ptr, 0, num_threads); 
-  time_pair = executor.run(N, job);
+  time_pair = executor.run(cpu_time, gpu_time);
   
   std::cout << "Construction time: " 
             << time_pair.first
