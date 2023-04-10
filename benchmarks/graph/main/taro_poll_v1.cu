@@ -10,6 +10,10 @@ int main(int argc, char* argv[]) {
 
   Configure cfg(argc, argv);
 
+  if(cfg.status != 0) {
+    return cfg.status;
+  }
+
   std::pair<double, double> time_pair;
 
   TaroGraphExecutor<taro::TaroPV1> executor(*cfg.g_ptr, 0, cfg.num_threads, cfg.num_streams); 

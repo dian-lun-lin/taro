@@ -14,11 +14,13 @@ struct Configure {
     std::vector<int> graph_args;
     size_t num_threads;
     size_t num_streams{0};
+    int status{0};
 
   private:
-    CLI::App _app{"Graph Benchmark"};
-    int _set(int argc, char** argv);
 
+    CLI::App _app{"Graph Benchmark"};
+
+    int _set(int argc, char** argv);
 
 };
 
@@ -42,7 +44,7 @@ int Configure::_set(int argc, char** argv) {
     benchmark_args,
     "args for a benchmark\n \
      loop: (CPU time per task, GPU time per task)\n \
-     data:()"
+     data:(data size per task)"
   );
 
   _app.add_option(
@@ -93,15 +95,9 @@ int Configure::_set(int argc, char** argv) {
     throw std::runtime_error("No such graph\n");
   }
 
-  if(benchmark == "loop") {
-    assert(benchmark_args.size() == 2);
-  }
-  else if(benchmark == "data") {
-    assert(benchmark_args.size() == 0);
-  }
   return 0;
 }
 
 Configure::Configure(int argc, char** argv) {
-  _set(argc, argv);
+  status = _set(argc, argv);
 }

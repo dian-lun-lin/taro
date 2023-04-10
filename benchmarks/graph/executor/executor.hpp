@@ -17,7 +17,7 @@ class GraphExecutor {
     template <typename ...Args>
     std::pair<double, double> run(const std::string& benchmark, const std::vector<int>& benchmark_args);
     virtual std::pair<double, double> run_loop(int cpu_time, int gpu_time) = 0;
-    virtual std::pair<double, double> run_data() = 0;
+    virtual std::pair<double, double> run_data(int data_size) = 0;
 
   protected:
     
@@ -42,7 +42,8 @@ std::pair<double, double> GraphExecutor::run(const std::string& benchmark, const
     timer = run_loop(benchmark_args[0], benchmark_args[1]);
   }
   else if(benchmark == "data") {
-    timer = run_data();
+    assert(benchmark_args.size() == 1);
+    timer = run_data(benchmark_args[0]);
   }
   else {
     assert(false);

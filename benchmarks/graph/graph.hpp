@@ -22,6 +22,19 @@
 #include <chrono>
 #include <cassert>
 
+// GPU count kernel
+__global__ void cuda_assign(
+  int* data,
+  size_t N
+) {
+
+  unsigned gid = blockDim.x * blockIdx.x + threadIdx.x;
+
+  if(gid < N) { 
+    data[gid] += 1;
+  }
+}
+
 // GPU sleep kernel
 __global__ void cuda_loop(
   size_t ms
