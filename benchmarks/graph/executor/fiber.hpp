@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../graph.hpp"
+#include "executor.hpp"
 #include "../../boost_fiber/fiber.hpp"
 
 //#include <thrust/reduce.h>
@@ -9,36 +9,27 @@
 //#include <thrust/random.h>
 //
 
-class GraphExecutor {
+class FiberGraphExecutor: public GraphExecutor {
 
   public:
   
-    GraphExecutor(Graph& graph, int dev_id, size_t num_threads);
+    FiberGraphExecutor(Graph& graph, int dev_id, size_t num_threads);
 
-    std::pair<double, double> run(size_t cpu_time, size_t gpu_time);
-    std::pair<double, double> run_loop(size_t cpu_time, size_t gpu_time);
+    std::pair<double, double> run_loop(int cpu_time, int gpu_time) final;
+    std::pair<double, double> run_data() final {};
 
   private:
     
-    int _dev_id;
-
-    Graph& _g;
-
-    size_t _num_threads;
+    FiberTaskScheduler _ft_sched;
 };
 
-GraphExecutor::GraphExecutor(Graph& graph, int dev_id, size_t num_threads): 
-  _g{graph}, _dev_id{dev_id}, _num_threads{num_threads} {
+FiberGraphExecutor::FiberGraphExecutor(Graph& graph, int dev_id, size_t num_threads): 
+  GraphExecutor{graph, dev_id, num_threads}, _ft_sched{num_threads} {
 }
 
-std::pair<double, double> GraphExecutor::run(size_t cpu_time, size_t gpu_time) {
-  return run_loop(cpu_time, gpu_time);
-}
-
-std::pair<double, double> GraphExecutor::run_loop(size_t cpu_time, size_t gpu_time) {
+std::pair<double, double> FiberGraphExecutor::run_loop(int cpu_time, int gpu_time) {
   auto constr_tic = std::chrono::steady_clock::now();
 
-  FiberTaskScheduler ft_sched{_num_threads};
 
   size_t cnt{0};
 
@@ -49,7 +40,7 @@ std::pair<double, double> GraphExecutor::run_loop(size_t cpu_time, size_t gpu_ti
     for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
 
       // GPU computing
-      tasks[l][i] = ft_sched.emplace([&ft_sched, cpu_time, gpu_time]()  {
+      tasks[l][i] = _ft_sched.emplace([this, cpu_time, gpu_time]()  {
         cpu_loop(cpu_time);
         cudaStream_t st;
         cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking);
@@ -74,8 +65,8 @@ std::pair<double, double> GraphExecutor::run_loop(size_t cpu_time, size_t gpu_ti
 
   auto exec_tic = std::chrono::steady_clock::now();
 
-  ft_sched.schedule();
-  ft_sched.wait();
+  _ft_sched.schedule();
+  _ft_sched.wait();
 
   auto exec_toc = std::chrono::steady_clock::now();
 

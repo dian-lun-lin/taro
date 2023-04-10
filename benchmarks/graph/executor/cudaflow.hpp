@@ -1,46 +1,30 @@
 #pragma once
 
-#include "../graph.hpp"
+#include "executor.hpp"
 #include <taskflow/taskflow/taskflow.hpp>
 #include <taskflow/taskflow/cuda/cudaflow.hpp>
 
-class GraphExecutor {
+class cudaFlowGraphExecutor: public GraphExecutor {
 
   public:
+    cudaFlowGraphExecutor(Graph& graph, int dev_id, size_t num_threads);
   
-    GraphExecutor(Graph& graph, int dev_id, size_t num_threads);
-
-    std::pair<double, double> run(size_t cpu_time, size_t gpu_time);
-    //std::pair<double, double> run_cudaflow_reduce(size_t N);
-    //std::pair<double, double> run_cudaflow_reduce2(size_t N);
-    //std::pair<double, double> run_matmul(size_t N);
-    std::pair<double, double> run_loop(size_t cpu_time, size_t gpu_time);
+    std::pair<double, double> run_loop(int cpu_time, int gpu_time) final;
+    std::pair<double, double> run_data() final {};
 
   private:
     
-
-    int _dev_id;
-
-    Graph& _g;
-
-    size_t _num_threads;
-    size_t _num_streams;
-
+    tf::Taskflow _taskflow;
+    tf::Executor _executor;
 };
 
-GraphExecutor::GraphExecutor(Graph& graph, int dev_id, size_t num_threads): 
-  _g{graph}, _dev_id{dev_id}, _num_threads{num_threads} {
+cudaFlowGraphExecutor::cudaFlowGraphExecutor(Graph& graph, int dev_id, size_t num_threads): 
+  GraphExecutor{graph, dev_id, num_threads}, _executor{num_threads} {
 }
 
-std::pair<double, double> GraphExecutor::run(size_t cpu_time, size_t gpu_time) {
-  return run_loop(cpu_time, gpu_time);
-}
-
-std::pair<double, double> GraphExecutor::run_loop(size_t cpu_time, size_t gpu_time) {
+std::pair<double, double> cudaFlowGraphExecutor::run_loop(int cpu_time, int gpu_time) {
   auto constr_tic = std::chrono::steady_clock::now();
 
-  tf::Taskflow taskflow;
-  tf::Executor executor{_num_threads};
 
   size_t cnt{0};
 
@@ -50,7 +34,7 @@ std::pair<double, double> GraphExecutor::run_loop(size_t cpu_time, size_t gpu_ti
     tasks[l].resize((_g.get_graph())[l].size());
     for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
 
-      tasks[l][i] = taskflow.emplace_on([cpu_time, gpu_time](tf::cudaFlowCapturer& cf) mutable {
+      tasks[l][i] = _taskflow.emplace_on([cpu_time, gpu_time](tf::cudaFlowCapturer& cf) mutable {
         cpu_loop(cpu_time);
         cf.on([gpu_time](cudaStream_t st) mutable {
           cuda_loop<<<8, 256, 0, st>>>(gpu_time);
@@ -73,7 +57,7 @@ std::pair<double, double> GraphExecutor::run_loop(size_t cpu_time, size_t gpu_ti
 
   auto exec_tic = std::chrono::steady_clock::now();
 
-  executor.run(taskflow).wait();
+  _executor.run(_taskflow).wait();
 
   auto exec_toc = std::chrono::steady_clock::now();
 

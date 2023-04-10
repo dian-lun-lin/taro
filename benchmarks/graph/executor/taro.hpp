@@ -1,44 +1,29 @@
 #pragma once
 
-#include "../graph.hpp"
-#include <taro/src/cuda/callback/v3/taro_callback_v3.hpp>
-//#include <thrust/reduce.h>
-//#include <thrust/sort.h>
-//#include <thrust/functional.h>
-//#include <thrust/random.h>
-//
+#include "executor.hpp"
 
-class GraphExecutor {
+template <typename TARO>
+class TaroGraphExecutor: public GraphExecutor {
 
   public:
-  
-    GraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams);
+    TaroGraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams = 0);
 
-    std::pair<double, double> run(size_t cpu_time, size_t gpu_time);
-    std::pair<double, double> run_loop(size_t cpu_time, size_t gpu_time);
+    std::pair<double, double> run_loop(int cpu_time, int gpu_time) final;
+    std::pair<double, double> run_data() final {};
 
   private:
-    
-    int _dev_id;
 
-    Graph& _g;
-
-    size_t _num_threads;
-    size_t _num_streams;
+    TARO _taro;
 };
 
-GraphExecutor::GraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams): 
-  _g{graph}, _dev_id{dev_id}, _num_threads{num_threads}, _num_streams{num_streams} {
+template <typename TARO>
+TaroGraphExecutor<TARO>::TaroGraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams):
+  GraphExecutor{graph, dev_id, num_threads, num_streams}, _taro{num_threads, num_streams} {
 }
 
-std::pair<double, double> GraphExecutor::run(size_t cpu_time, size_t gpu_time) {
-  return run_loop(cpu_time, gpu_time);
-}
-
-std::pair<double, double> GraphExecutor::run_loop(size_t cpu_time, size_t gpu_time) {
+template <typename TARO>
+std::pair<double, double> TaroGraphExecutor<TARO>::run_loop(int cpu_time, int gpu_time) {
   auto constr_tic = std::chrono::steady_clock::now();
-
-  taro::TaroCBV3 taro{_num_threads, _num_streams};
 
   size_t cnt{0};
 
@@ -49,9 +34,9 @@ std::pair<double, double> GraphExecutor::run_loop(size_t cpu_time, size_t gpu_ti
     for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
 
       // GPU computing
-      tasks[l][i] = taro.emplace([&taro, cpu_time, gpu_time]() mutable -> taro::Coro {
+      tasks[l][i] = _taro.emplace([this, cpu_time, gpu_time]() mutable -> taro::Coro {
         cpu_loop(cpu_time);
-        co_await taro.cuda_suspend([gpu_time](cudaStream_t st) mutable {
+        co_await _taro.cuda_suspend([gpu_time](cudaStream_t st) mutable {
           cuda_loop<<<8, 256, 0, st>>>(gpu_time);
         });
       });
@@ -74,8 +59,8 @@ std::pair<double, double> GraphExecutor::run_loop(size_t cpu_time, size_t gpu_ti
 
   auto exec_tic = std::chrono::steady_clock::now();
 
-  taro.schedule();
-  taro.wait();
+  _taro.schedule();
+  _taro.wait();
 
   auto exec_toc = std::chrono::steady_clock::now();
 
