@@ -26,7 +26,14 @@ class Worker {
     std::jthread* _thread;
     size_t _id;
     std::mutex _mtx;
-    std::binary_semaphore _wait_task{0};
+
+    enum STAT: unsigned {
+      SLEEP,
+      BUSY,
+      SIGNALED // 
+    };
+    std::atomic<unsigned> _status{STAT::SLEEP};
+
 };
 
 } // end of namespace taro ==============================================

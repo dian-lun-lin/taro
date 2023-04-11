@@ -99,6 +99,8 @@ class TaroCBV3 {
       std::vector<bool>& in_recursion
     ) const;
 
+    void _notify(Worker& worker);
+
     std::vector<std::jthread> _threads;
     std::vector<Worker> _workers;
     std::vector<cudaStream> _streams;
@@ -147,7 +149,10 @@ void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
     std::scoped_lock lock(worker->_mtx);
     cf->_enqueue(*worker, cf->_tasks[prom->_id].get(), TaskPriority::HIGH);
   }
-  worker->_wait_task.release();
+
+  if(worker->_status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
+    worker->_status.notify_one();
+  }
 
   cf->_cbcnt.fetch_sub(1);
 }
@@ -193,17 +198,22 @@ TaroCBV3::TaroCBV3(size_t num_threads, size_t num_streams):
       initial_done.count_down();
 
       // begin of task scheduling ===================================================
-      do {
-        worker._wait_task.acquire();
+      worker._status.wait(Worker::STAT::SLEEP);
 
-        do {
+      do {
+        worker._status.store(Worker::STAT::BUSY);
+
+        do {  
           _exploit_task(worker);
 
           if(!_explore_task(worker, stop)) {
             return; // stop
           }
-
         } while(_pending_tasks.load(std::memory_order_acquire) > 0);
+
+        if(worker._status.exchange(Worker::STAT::SLEEP) == Worker::STAT::BUSY) {
+          worker._status.wait(Worker::STAT::SLEEP);
+        }
       } while(true);
 
       // end of task scheduling =====================================================
@@ -294,12 +304,13 @@ void TaroCBV3::schedule() {
 
   // enqueue tasks before wake up workers to avoid data racing (i.e., worker._que.push())
   for(auto src: srcs) {
-    auto& worker = _workers[_cnt++ % _threads.size()];
+    auto& worker = _workers[_cnt++ % _workers.size()];
     _enqueue(worker, src);
   }
 
-  for(size_t w = 0; w < std::min(_workers.size(), _cnt); ++w) {
-    _workers[w]._wait_task.release();
+  for(size_t i = 0; i < std::min(srcs.size(), _workers.size()); ++i) {
+    _workers[i]._status.exchange(Worker::STAT::SIGNALED);
+    _workers[i]._status.notify_one();
   }
 }
 
@@ -409,14 +420,25 @@ void TaroCBV3::_invoke_static_task(Worker& worker, Task* tp) {
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
       _enqueue(worker, succp);
-      size_t idx = (worker._id + cnt++) % _workers.size(); // "nofity" one
-      _workers[idx]._wait_task.release(); // we release the worker thread first, otherwise it may go to sleep
+      _notify(worker);
     }
   }
 
   if(_finished.fetch_add(1) + 1 == _tasks.size()) {
     _request_stop();
   }
+}
+
+void TaroCBV3::_notify(Worker& worker) {
+  size_t cnt{1};
+  do {
+    unsigned tmp = Worker::STAT::SLEEP;
+    size_t idx = (worker._id + cnt++) % _workers.size();
+    if(_workers[idx]._status.compare_exchange_weak(tmp, Worker::STAT::SIGNALED)) {
+      _workers[idx]._status.notify_one();
+      return;
+    }
+  } while(cnt < _workers.size());
 }
 
 void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
@@ -439,13 +461,10 @@ void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
   }
 
   if(done) {
-    size_t cnt{0};
     for(auto succp: tp->_succs) {
       if(succp->_join_counter.fetch_sub(1) == 1) {
         _enqueue(worker, succp);
-        size_t idx = (worker._id + cnt++) % _workers.size(); // "nofity" one
-        _workers[idx]._wait_task.release(); // we release the worker thread first, otherwise it may go to sleep
-        // TODO: unlike nofity that always wake up waiting thread, the release function may wake up a future waiting thread
+        _notify(worker);
       }
     }
 
@@ -458,7 +477,8 @@ void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
 void TaroCBV3::_request_stop() {
   for(auto& w: _workers) {
     w._thread->request_stop();
-    w._wait_task.release();
+    w._status.store(Worker::STAT::SIGNALED);
+    w._status.notify_one();
   }
 }
 
