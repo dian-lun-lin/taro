@@ -21,7 +21,7 @@ class Worker {
     WorkStealingQueue<Task*> _que;
     
     // for TaroCBV2
-    WorkStealingQueue<cudaStream_t> _sque;
+    //WorkStealingQueue<cudaStream_t> _sque;
 
     Notifier::Waiter* _waiter;
     std::thread* _thread;

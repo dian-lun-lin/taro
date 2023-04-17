@@ -17,9 +17,6 @@ class TaroCBV2;
 // cudaStream is handled by Taro
 // work-stealing approach
 //
-// "stream-stealing" approach
-// keep creating cuda stream if none of exitisng streams is available
-//
 // ==========================================================================
 //
 // Declaration of class TaroCBV2
@@ -33,18 +30,22 @@ class TaroCBV2 {
   //friend void CUDART_CB _cuda_stream_callback_v2(cudaStream_t st, cudaError_t stat, void* void_args);
   friend void CUDART_CB _cuda_stream_callback_v2(void* void_args);
 
+  struct cudaStream {
+    cudaStream_t st;
+    size_t id;
+  };
+
   struct cudaCallbackData {
-    TaroCBV2* taro{nullptr};
-    Coro::promise_type* prom{nullptr};
-    cudaStream_t stream{nullptr};
-    Task* callback_task{nullptr};
+    TaroCBV2* cf;
+    Coro::promise_type* prom;
+    size_t stream_id;
+    //size_t num_kernels;
   };
 
 
   public:
 
-    // num_streams here does not mean anything
-    // this arg is for ease of benchmarking
+  // TODO: num_streams does not mean anything here just for ease of benchmarking 
     TaroCBV2(size_t num_threads, size_t num_streams = 0);
 
     ~TaroCBV2();
@@ -78,7 +79,6 @@ class TaroCBV2 {
 
     void _invoke_coro_task(Worker& worker, Task* tp);
     void _invoke_static_task(Worker& worker, Task* tp);
-    void _invoke_inner_task(Worker& worker, Task* tp);
 
     Worker* _this_worker();
 
@@ -95,20 +95,22 @@ class TaroCBV2 {
 
     std::vector<std::thread> _threads;
     std::vector<Worker> _workers;
+    std::vector<cudaStream> _streams;
     std::vector<std::unique_ptr<Task>> _tasks;
     std::unordered_map<std::thread::id, size_t> _wids;
 
+    std::vector<size_t> _in_stream_tasks;
     WorkStealingQueue<Task*> _que;
 
     std::mutex _qmtx;
     std::mutex _stream_mtx;
+    std::mutex _kernel_mtx;
 
     Notifier _notifier;
     std::atomic<bool> _stop{false};
     std::atomic<size_t> _finished{0};
     std::atomic<size_t> _cbcnt{0};
     size_t _MAX_STEALS;
-
 };
 
 // ==========================================================================
@@ -119,16 +121,24 @@ class TaroCBV2 {
 
 // cuda callback
 void CUDART_CB _cuda_stream_callback_v2(void* void_args) {
-  auto* data = (TaroCBV2::cudaCallbackData*) void_args;
-  auto* callback_task = data->callback_task;
-  auto* taro = data->taro;
 
-  // after enqueue, taro may finish the task and be destructed
-  // in that case _notifier is destructed before we call notify here
-  // we need to count callback times
-  taro->_enqueue(callback_task);
-  taro->_notifier.notify(false);
-  taro->_cbcnt.fetch_sub(1);
+  // unpack
+  auto* data = (TaroCBV2::cudaCallbackData*) void_args;
+  auto* cf = data->cf;
+  auto* prom = data->prom;
+  auto stream_id = data->stream_id;
+  
+  {
+    std::scoped_lock lock(cf->_stream_mtx);
+    --cf->_in_stream_tasks[stream_id];
+  }
+
+  // after enqueue, cf may finish the task and be destructed
+  // in that case _notifier is destructed before we call notify in the callback
+  // TODO: memory_order_acq_rel?
+  cf->_enqueue(cf->_tasks[prom->_id].get());
+  cf->_notifier.notify(false);
+  cf->_cbcnt.fetch_sub(1);
 }
 
 // ==========================================================================
@@ -144,28 +154,35 @@ TaroCBV2::TaroCBV2(size_t num_threads, size_t num_streams):
   _threads{num_threads}
 {
 
+  //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
+
+  // GPU streams
+
+  // at the beginning, we create #num_threads GPU streams
+  _in_stream_tasks.resize(num_threads, 0);
+  _streams.resize(num_threads);
+  for(size_t i = 0; i < num_threads; ++i) {
+    _streams[i].id = i;
+    cudaStreamCreateWithFlags(&(_streams[i].st), cudaStreamNonBlocking);
+  }
+
   std::mutex wmtx;
   std::condition_variable wcv;
 
-  // CPU threads
   size_t cnt{0};
   for(size_t id = 0; id < num_threads; ++id) {
-    auto& worker = _workers[id];
-    worker._id = id;
-    worker._vtm = id;
-    worker._waiter = &_notifier._waiters[id];
+    auto worker = &_workers[id];
+    worker->_id = id;
+    worker->_vtm = id;
+    worker->_waiter = &_notifier._waiters[id];
 
-    _threads[id] = std::thread([this, id, num_threads, &worker, &cnt, &wmtx, &wcv]() {
+    _threads[id] = std::thread([this, id, num_threads, worker, &cnt, &wmtx, &wcv]() {
 
-      worker._thread = &_threads[id];
-
-      cudaStream_t stream;
-      cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
-      worker._sque.push(stream);
+      worker->_thread = &_threads[id];
 
       {
         std::scoped_lock lock(wmtx);
-        _wids[std::this_thread::get_id()] = worker._id;
+        _wids[std::this_thread::get_id()] = worker->_id;
         if(cnt++; cnt == num_threads) {
           wcv.notify_one();
         }
@@ -175,9 +192,9 @@ TaroCBV2::TaroCBV2(size_t num_threads, size_t num_streams):
       // TODO: before we call schedule, we know there's no task in the queue
       // can we not enter into scheduling loop until we call schedule?
       while(1) {
-        _exploit_task(worker);
+        _exploit_task(*worker);
 
-        if(!_wait_for_task(worker)) {
+        if(!_wait_for_task(*worker)) {
           break;
         }
       }
@@ -270,19 +287,23 @@ bool TaroCBV2::_wait_for_task(Worker& worker) {
 
 
 TaroCBV2::~TaroCBV2() {
-  for(auto& w: _workers) {
-    while(!w._sque.empty()) {
-      checkCudaError(cudaStreamDestroy(w._sque.pop().value()));
-    }
+  for(auto& st: _streams) {
+    cudaStreamDestroy(st.st);
   }
 }
 
 void TaroCBV2::wait() {
+
   for(auto& t: _threads) {
     t.join();
   }
-  //std::unique_lock lock(_nmtx);
+
   while(_cbcnt.load() != 0) {}
+
+  //for(auto& st: _streams) {
+    //checkCudaError(cudaStreamSynchronize(st.st));
+  //}
+  //checkCudaError(cudaDeviceSynchronize());
 }
 
 void TaroCBV2::schedule() {
@@ -293,6 +314,8 @@ void TaroCBV2::schedule() {
       srcs.push_back(t.get());
     }
   }
+  _streams.reserve(_tasks.size() / 16);
+  _in_stream_tasks.reserve(_tasks.size() / 16);
 
   _enqueue(srcs);
   _notifier.notify(srcs.size());
@@ -304,102 +327,46 @@ auto TaroCBV2::cuda_suspend(C&& c) {
   struct awaiter: std::suspend_always {
     std::function<void(cudaStream_t)> kernel;
     cudaCallbackData data;
-    Task callback_task;
-    std::atomic<bool> sync{false};
-    awaiter(const awaiter& ) {} // compiler bug?
 
-    explicit awaiter(TaroCBV2* taro, C&& c): kernel{std::forward<C>(c)} {
-      data.taro = taro; 
+    explicit awaiter(TaroCBV2* cf, C&& c): kernel{std::forward<C>(c)} {
+      data.cf = cf; 
     }
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
-      _set_callback(coro_handle);
 
-      // enqueue the kernel to the stream
-      kernel(data.stream);
-      data.taro->_cbcnt.fetch_add(1);
-      cudaLaunchHostFunc(data.stream, _cuda_stream_callback_v2, (void*)&data);
-    }
-
-    private:
-
-      cudaStream_t _get_stream() {
-
-        auto* taro = data.taro;
-        Worker& worker = *(taro->_this_worker());
-
-        // get an empty stream from worker's own sque
-        auto opt = worker._sque.pop();
-        if(opt) {
-          return opt.value();
-        }
-
-        // try to steal an empty stream from other workers
-        cudaStream_t stream{nullptr};
-        size_t num_steals{0};
-        size_t num_yields{0};
-        std::uniform_int_distribution<size_t> rdvtm(0, taro->_workers.size() - 1);
-
-        do {
-          size_t vtm = rdvtm(worker._rdgen);
-
-          if(worker._id == vtm) { continue; }
-
-          auto opt = taro->_workers[vtm]._sque.steal();
-
-          if(opt) {
-            stream = opt.value();
-            break;
-          }
-
-          if(num_steals++ > taro->_MAX_STEALS) {
-            std::this_thread::yield();
-            if(num_yields++ > 10) {
-              break;
-            }
-          }
-        } while(!taro->_stop);
-
-        // if we really cannot get an empty stream, create a new one
-        if(stream == nullptr) {
-          cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
-        }
-
-        return stream;
-      }
-
-      void _set_callback(std::coroutine_handle<Coro::promise_type> coro_handle) {
-        data.stream = _get_stream();
-        data.prom = &(coro_handle.promise());
-
-        callback_task = Task(0, std::in_place_type_t<Task::InnerTask>{}, 
-          [coro_handle, this](Worker& worker) mutable {
-            cudaStream_t stream;
-            size_t id;
-            TaroCBV2* taro{nullptr};
-
-            stream = data.stream;
-            id = data.prom->_id;
-            taro = data.taro;
-
-            worker._sque.push(stream);
-            Task* tp = taro->_tasks[id].get();
-
-            // when enqueued coroutine get executed
-            // this awaiter will be destryed due to coro.resume()
-            // in this case, the callback_task is destroyed
-            // however, the callback thread may still in callback function (e.g., calling notify())
-            // which results in data race
-            //
-            // hence, we need to finish the callback_task before we execute this enqueued coroutine
-            auto* coro_t = std::get_if<Task::CoroTask>(&tp->_handle);
-            std::scoped_lock lock(coro_t->coro._mtx);
-            taro->_enqueue(worker, tp);
-            taro->_notifier.notify(false);
-          }
+      // choose the best stream id
+      size_t stream_id;
+      {
+        std::scoped_lock lock(data.cf->_stream_mtx);
+        stream_id = std::distance(
+          data.cf->_in_stream_tasks.begin(), 
+          std::min_element(data.cf->_in_stream_tasks.begin(), data.cf->_in_stream_tasks.end())
         );
 
-        data.callback_task = &callback_task;
+        // if the smallest # of tasks is larger than 16, find a new one
+        if(data.cf->_in_stream_tasks[stream_id] > 16) {
+          data.cf->_streams.emplace_back();
+          data.cf->_in_stream_tasks.emplace_back(0);
+          data.cf->_streams.back().id = ++stream_id;
+          cudaStreamCreateWithFlags(&(data.cf->_streams.back().st), cudaStreamNonBlocking);
+        }
+        ++data.cf->_in_stream_tasks[stream_id];
       }
+
+      // set callback data
+      data.prom = &(coro_handle.promise());
+      data.stream_id = stream_id;
+
+
+      // enqueue the kernel to the stream
+      data.cf->_cbcnt.fetch_add(1);
+      {
+        std::scoped_lock lock(data.cf->_kernel_mtx);
+        kernel(data.cf->_streams[stream_id].st);
+        cudaLaunchHostFunc(data.cf->_streams[stream_id].st, _cuda_stream_callback_v2, (void*)&data);
+      }
+
+    }
+    
   };
 
   return awaiter{this, std::forward<C>(c)};
@@ -407,12 +374,12 @@ auto TaroCBV2::cuda_suspend(C&& c) {
 
 auto TaroCBV2::suspend() {
   struct awaiter: std::suspend_always {
-    TaroCBV2* _taro;
-    explicit awaiter(TaroCBV2* taro) noexcept : _taro{taro} {}
+    TaroCBV2* _cf;
+    explicit awaiter(TaroCBV2* cf) noexcept : _cf{cf} {}
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) const noexcept {
       auto id = coro_handle.promise()._id;
-      _taro->_enqueue(*(_taro->_this_worker()), _taro->_tasks[id].get());
-      _taro->_notifier.notify(false);
+      _cf->_enqueue(*(_cf->_this_worker()), _cf->_tasks[id].get());
+      _cf->_notifier.notify(false);
     }
   };
 
@@ -486,14 +453,6 @@ void TaroCBV2::_process(Worker& worker, Task* tp) {
       _invoke_coro_task(worker, tp);
     }
     break;
-
-    case Task::INNERTASK: {
-      _invoke_inner_task(worker, tp);
-    }
-    break;
-
-    default:
-      assert(false);
   }
 }
 
@@ -514,6 +473,7 @@ void TaroCBV2::_invoke_static_task(Worker& worker, Task* tp) {
 
 void TaroCBV2::_invoke_coro_task(Worker& worker, Task* tp) {
   auto* coro_t = std::get_if<Task::CoroTask>(&tp->_handle);
+
   // when this thread (i.e., t1) calls cuda_suspend and insert a callback to CUDA runtime
   // the CUDA runtime may finish cuda kernel very fast and 
   // use its own CPU thread to call the callback to enque the coroutine back
@@ -539,15 +499,10 @@ void TaroCBV2::_invoke_coro_task(Worker& worker, Task* tp) {
     }
 
     if(_finished.fetch_add(1) + 1 == _tasks.size()) {
-      // TODO: we need to check if there's no callback
       _stop = true;
       _notifier.notify(true);
     }
   }
-}
-
-void TaroCBV2::_invoke_inner_task(Worker& worker, Task* tp) {
-  std::get_if<Task::InnerTask>(&tp->_handle)->work(worker);
 }
 
 Worker* TaroCBV2::_this_worker() {

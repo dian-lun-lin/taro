@@ -9,6 +9,9 @@
 namespace taro { // begin of namespace taro ===================================
 
 class TaroCBV3;
+
+// TODO: memory_order
+// TODO: can we assign a kenel mutex for each stream
   
 // work-stealing alrotihm using C++20 synchronization primitives
 // callback tries enque tasks back to original worker to minimize conext switch
@@ -112,8 +115,17 @@ class TaroCBV3 {
     std::mutex _kernel_mtx;
 
     std::atomic<size_t> _finished{0};
-    std::atomic<size_t> _pending_tasks{0};
-    std::atomic<size_t> _cbcnt{0};
+
+    // _pending_tasks uses int64_t as its type
+    // consider this situation:
+    //
+    // _pending_tasks = 0
+    // worker._que.push(task) 
+    // thread A steal this task (_pending_tasks.fetch_sub(1));
+    // _pending_task.fetch_add(1);
+    // if we use size_t, we will get issue as size_t cannot be negative
+    std::atomic<int64_t> _pending_tasks{0}; 
+    std::atomic<size_t> _cb_cnt{0};
     size_t _cnt{0};
     size_t _MAX_STEALS;
 };
@@ -150,11 +162,13 @@ void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
     cf->_enqueue(*worker, cf->_tasks[prom->_id].get(), TaskPriority::HIGH);
   }
 
+  //worker->_status.store(Worker::STAT::SIGNALED);
   if(worker->_status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
     worker->_status.notify_one();
   }
 
-  cf->_cbcnt.fetch_sub(1);
+  cf->_cb_cnt.fetch_sub(1);
+
 }
 
 // ==========================================================================
@@ -180,41 +194,43 @@ TaroCBV3::TaroCBV3(size_t num_threads, size_t num_streams):
   }
 
   // TODO num_threads has warning (invalid conversion: unsigned long to long)
-  std::latch initial_done{_workers.size()};
+  std::latch initial_done{int(_workers.size())};
   std::mutex wmtx;
 
   for(size_t id = 0; id < num_threads; ++id) {
-    auto& worker = _workers[id];
-    worker._id = id;
+    auto* worker = &_workers[id];
+    worker->_id = id;
 
-    _threads[id] = std::jthread([this, id, num_threads, &worker, &initial_done, &wmtx](const std::stop_token &stop) {
+    _threads[id] = std::jthread([this, id, worker, &initial_done, &wmtx](const std::stop_token &stop) {
 
-      worker._thread = &_threads[id];
+      worker->_thread = &_threads[id];
 
       {
         std::scoped_lock lock(wmtx);
-        _wids[std::this_thread::get_id()] = worker._id;
+        _wids[std::this_thread::get_id()] = worker->_id;
       }
       initial_done.count_down();
 
       // begin of task scheduling ===================================================
-      worker._status.wait(Worker::STAT::SLEEP);
+      worker->_status.wait(Worker::STAT::SLEEP);
+      //worker._status.wait(Worker::STAT::SLEEP);
 
       do {
-        worker._status.store(Worker::STAT::BUSY);
+        worker->_status.store(Worker::STAT::BUSY);
 
         do {  
-          _exploit_task(worker);
+          _exploit_task(*worker);
 
-          if(!_explore_task(worker, stop)) {
+          if(!_explore_task(*worker, stop)) {
             return; // stop
           }
-        } while(_pending_tasks.load(std::memory_order_acquire) > 0);
+        } while(_pending_tasks.load() > 0);
 
-        if(worker._status.exchange(Worker::STAT::SLEEP) == Worker::STAT::BUSY) {
-          worker._status.wait(Worker::STAT::SLEEP);
+        // false means a task is enqueued by callback
+        if(worker->_status.exchange(Worker::STAT::SLEEP) == Worker::STAT::BUSY) {
+          worker->_status.wait(Worker::STAT::SLEEP);
         }
-      } while(true);
+      } while(!stop.stop_requested());
 
       // end of task scheduling =====================================================
       
@@ -229,13 +245,13 @@ void TaroCBV3::_exploit_task(Worker& worker) {
 
   _exploit_task_high:
     while(auto task = worker._que.steal(TaskPriority::HIGH)) {
-      _pending_tasks.fetch_sub(1, std::memory_order_release);
+      _pending_tasks.fetch_sub(1);
       _process(worker, task.value());
     }
 
   //_exploit_task_low:
   while(auto task = worker._que.pop(TaskPriority::LOW)) {
-    _pending_tasks.fetch_sub(1, std::memory_order_release);
+    _pending_tasks.fetch_sub(1);
     _process(worker, task.value());
     if(!worker._que.empty(TaskPriority::HIGH)) {
       goto _exploit_task_high;
@@ -257,8 +273,9 @@ bool TaroCBV3::_explore_task(Worker& worker, const std::stop_token& stop) {
       size_t idx = (worker._id + i) % _workers.size();
       auto opt = _workers[idx]._que.steal(); // steal task from priority LOW to priority HIGH
       if(opt) {
-        _pending_tasks.fetch_sub(1, std::memory_order_release);
+        _pending_tasks.fetch_sub(1);
         _process(worker, opt.value());
+        _notify(worker);
         return true;
       }
 
@@ -289,8 +306,9 @@ void TaroCBV3::wait() {
   for(auto& t: _threads) {
     t.join();
   }
+  
+  while(_cb_cnt != 0) {}
 
-  while(_cbcnt.load() != 0) {}
 }
 
 void TaroCBV3::schedule() {
@@ -309,7 +327,7 @@ void TaroCBV3::schedule() {
   }
 
   for(size_t i = 0; i < std::min(srcs.size(), _workers.size()); ++i) {
-    _workers[i]._status.exchange(Worker::STAT::SIGNALED);
+    _workers[i]._status.store(Worker::STAT::SIGNALED);
     _workers[i]._status.notify_one();
   }
 }
@@ -344,7 +362,7 @@ auto TaroCBV3::cuda_suspend(C&& c) {
 
 
       // enqueue the kernel to the stream
-      data.cf->_cbcnt.fetch_add(1);
+      data.cf->_cb_cnt.fetch_add(1);
       {
         std::scoped_lock lock(data.cf->_kernel_mtx);
         kernel(data.cf->_streams[stream_id].st);
@@ -389,7 +407,7 @@ bool TaroCBV3::is_DAG() const {
 
 void TaroCBV3::_enqueue(Worker& worker, Task* tp, TaskPriority p) {
   worker._que.push(tp, p);
-  _pending_tasks.fetch_add(1, std::memory_order_relaxed);
+  _pending_tasks.fetch_add(1); // make sure to add pending tasks after push
 }
 
 // this enqueue is only used by main thread
@@ -416,7 +434,6 @@ void TaroCBV3::_process(Worker& worker, Task* tp) {
 
 void TaroCBV3::_invoke_static_task(Worker& worker, Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
-  size_t cnt{0};
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
       _enqueue(worker, succp);
@@ -435,10 +452,16 @@ void TaroCBV3::_notify(Worker& worker) {
     unsigned tmp = Worker::STAT::SLEEP;
     size_t idx = (worker._id + cnt++) % _workers.size();
     if(_workers[idx]._status.compare_exchange_weak(tmp, Worker::STAT::SIGNALED)) {
+      // TODO: not sure if success can be memory_order_relaxed
       _workers[idx]._status.notify_one();
       return;
     }
   } while(cnt < _workers.size());
+
+  // everyone seems to be busy
+  // but busy workers may turn to sleep after we check the status
+  // the worker need to wake up in case everyone go to sleep
+  worker._status.store(Worker::STAT::SIGNALED);
 }
 
 void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {

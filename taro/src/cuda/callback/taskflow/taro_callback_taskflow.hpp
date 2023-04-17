@@ -151,7 +151,7 @@ void TaroCBTaskflow::schedule() {
 
   fu.get();
 
-  while(_cbcnt != 0) {}
+  while(_cbcnt.load() != 0) {}
 }
 
 template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
@@ -167,7 +167,7 @@ auto TaroCBTaskflow::cuda_suspend(C&& c) {
     void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
 
       // set callback data
-      data.stream = _get_stream();
+      data.stream = data.taro->_streams[_get_stream()];
       data.prom = &(coro_handle.promise());
 
       // enqueue the kernel to the stream
@@ -181,7 +181,7 @@ auto TaroCBTaskflow::cuda_suspend(C&& c) {
 
     private:
 
-      cudaStream_t _get_stream() {
+      size_t _get_stream() {
 
         // choose the best stream id
         size_t stream_id;
@@ -194,7 +194,7 @@ auto TaroCBTaskflow::cuda_suspend(C&& c) {
           ++data.taro->_in_stream_tasks[stream_id];
         }
 
-        return data.taro->_streams[stream_id];
+        return stream_id;
       }
   };
 

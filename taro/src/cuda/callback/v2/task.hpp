@@ -83,18 +83,18 @@ class Task {
   };
 
   // for TaroCBV2, TaroCBV3
-  struct InnerTask {
-    template <typename C>
-    InnerTask(C&&);
+  //struct InnerTask {
+    //template <typename C>
+    //InnerTask(C&&);
 
-    std::function<void(Worker&)> work;
-  };
+    //std::function<void(Worker&)> work;
+  //};
 
   using handle_t = std::variant<
     std::monostate,
     CoroTask,
-    StaticTask,
-    InnerTask
+    StaticTask
+    //InnerTask
   >;
 
   public:
@@ -118,7 +118,7 @@ class Task {
     constexpr static auto PLACEHOLDER   = get_index_v<std::monostate, handle_t>;
     constexpr static auto COROTASK   = get_index_v<CoroTask, handle_t>;
     constexpr static auto STATICTASK = get_index_v<StaticTask, handle_t>;
-    constexpr static auto INNERTASK = get_index_v<InnerTask, handle_t>;
+    //constexpr static auto INNERTASK = get_index_v<InnerTask, handle_t>;
 
   private:
 
@@ -141,9 +141,9 @@ Task::CoroTask::CoroTask(C&& c):
 {
 }
 
-template <typename C>
-Task::InnerTask::InnerTask(C&& c): work{std::forward<C>(c)} {
-}
+//template <typename C>
+//Task::InnerTask::InnerTask(C&& c): work{std::forward<C>(c)} {
+//}
 
 // ==========================================================================
 //
