@@ -27,8 +27,8 @@ fi
 echo "start running..."
 
 if [ "$RUN_ALL" = true ]; then
-  NUM_THREADS=(4 2 1)
-  NUM_STREMAS=(8 4 2 1)
+  NUM_THREADS=(4)
+  NUM_STREMAS=(4 32)
   NUM_TASKS=(1 2 4 8 16 32 64 128 256 512 1024)
   CHAIN_SIZE=(1)
 
