@@ -13,7 +13,7 @@ class FiberGraphExecutor: public GraphExecutor {
 
   public:
   
-    FiberGraphExecutor(Graph& graph, int dev_id, size_t num_threads);
+    FiberGraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams);
 
     std::pair<double, double> run_loop(int cpu_time, int gpu_time) final;
     std::pair<double, double> run_data(int data_size) final;
@@ -23,8 +23,8 @@ class FiberGraphExecutor: public GraphExecutor {
     FiberTaskScheduler _ft_sched;
 };
 
-FiberGraphExecutor::FiberGraphExecutor(Graph& graph, int dev_id, size_t num_threads): 
-  GraphExecutor{graph, dev_id, num_threads}, _ft_sched{num_threads} {
+FiberGraphExecutor::FiberGraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams): 
+  GraphExecutor{graph, dev_id, num_threads, num_streams}, _ft_sched{num_threads, num_streams} {
 }
 
 std::pair<double, double> FiberGraphExecutor::run_loop(int cpu_time, int gpu_time) {
@@ -40,13 +40,10 @@ std::pair<double, double> FiberGraphExecutor::run_loop(int cpu_time, int gpu_tim
     for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
 
       // GPU computing
-      tasks[l][i] = _ft_sched.emplace([this, cpu_time, gpu_time]()  {
+      tasks[l][i] = _ft_sched.emplace([this, cpu_time, gpu_time](cudaStream_t st)  {
         cpu_loop(cpu_time);
-        cudaStream_t st;
-        cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking);
         cuda_loop<<<8, 256, 0, st>>>(gpu_time);
         boost::fibers::cuda::waitfor_all(st);
-        cudaStreamDestroy(st);
       });
         
       ++cnt;
@@ -97,9 +94,7 @@ std::pair<double, double> FiberGraphExecutor::run_data(int data_size) {
     for(size_t i = 0; i < (_g.get_graph())[l].size(); ++i) {
 
       // GPU computing
-      tasks[l][i] = _ft_sched.emplace([this, &cdata, &gdata, cnt, data_size]()  {
-        cudaStream_t st;
-        cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking);
+      tasks[l][i] = _ft_sched.emplace([this, &cdata, &gdata, cnt, data_size](cudaStream_t st)  {
         int k = 0;
         while(k++ < 1000) {
           for(auto& d: cdata[cnt]) { 

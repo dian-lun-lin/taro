@@ -7,6 +7,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <latch>
 
 #include <boost/assert.hpp>
 #include <boost/fiber/all.hpp>
@@ -92,7 +93,7 @@ class FiberTaskScheduler {
 
   public:
 
-    FiberTaskScheduler(size_t num_threads);
+    FiberTaskScheduler(size_t num_threads, size_t num_streams);
     ~FiberTaskScheduler();
   
     template <typename C>
@@ -103,7 +104,14 @@ class FiberTaskScheduler {
 
   private:
 
+  size_t _get_stream();
   std::vector<FiberTask*> _tasks;
+
+  std::vector<cudaStream_t> _streams;
+  boost::fibers::mutex _stream_mtx;
+  size_t _num_streams;
+  std::vector<size_t> _in_stream_tasks;
+
   std::atomic<size_t> _finished{0};
   std::vector<std::thread> _threads;
   size_t _num_threads;
@@ -128,7 +136,14 @@ void FiberTask::_precede(FiberTask* tp) {
 template <typename C>
 FiberTask::FiberTask(FiberTaskScheduler& sched, C&& c): _sched{sched} { 
   _work = [this, c=std::forward<C>(c)]() {
-    c();
+    size_t stream_id = _sched._get_stream();
+    c(_sched._streams[stream_id]);
+
+    {
+      _sched._stream_mtx.lock();
+      --_sched._in_stream_tasks[stream_id];
+      _sched._stream_mtx.unlock();
+    }
 
     for(auto succp: _succs) {
       if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -175,13 +190,25 @@ FiberTaskHandle& FiberTaskHandle::succeed(FiberTaskHandle fth) {
 //
 // ==========================================================================
 
-FiberTaskScheduler::FiberTaskScheduler(size_t num_threads): _num_threads{num_threads} {
-  _threads.reserve(num_threads);
+FiberTaskScheduler::FiberTaskScheduler(size_t num_threads, size_t num_streams): 
+  _num_threads{num_threads}, _num_streams{num_streams} {
+  _threads.reserve(_num_threads);
+  _in_stream_tasks.resize(_num_streams, 0);
+  _streams.resize(_num_streams);
+
+  for(auto& st: _streams) {
+    cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking);
+    //cudaStreamCreate(&st);
+  }
 }
 
 FiberTaskScheduler::~FiberTaskScheduler() {
   for(auto task: _tasks) {
     delete task;
+  }
+
+  for(auto st: _streams) {
+    cudaStreamDestroy(st);
   }
 }
 
@@ -194,18 +221,13 @@ FiberTaskHandle FiberTaskScheduler::emplace(C&& c) {
 
 void FiberTaskScheduler::schedule() {
 
-  for(auto task: _tasks) {
-    if(task->_join_counter.load(std::memory_order_relaxed) == 0) {
-      boost::fibers::fiber([this, task](){
-        task->_work();
-      }).detach();
-    }
-  }
 
+  boost::fibers::barrier b{_num_threads};
 
   for(size_t i = 0; i < _num_threads - 1; ++i) {
-    _threads.emplace_back([this](){
+    _threads.emplace_back([this, &b](){
       boost::fibers::use_scheduling_algorithm<boost::fibers::algo::work_stealing>(_num_threads); 
+      b.wait();
 
       std::unique_lock<std::mutex> lock(_mtx);
       _cv.wait(lock, [this](){ return _stop.load(); } ); 
@@ -214,6 +236,15 @@ void FiberTaskScheduler::schedule() {
   }
 
   boost::fibers::use_scheduling_algorithm<boost::fibers::algo::work_stealing>(_num_threads);
+  b.wait();
+  for(auto task: _tasks) {
+    if(task->_join_counter.load(std::memory_order_relaxed) == 0) {
+      boost::fibers::fiber([this, task](){
+        task->_work();
+      }).detach();
+    }
+  }
+
 }
 
 void FiberTaskScheduler::wait() {
@@ -226,4 +257,19 @@ void FiberTaskScheduler::wait() {
   for(auto& t: _threads) {
     t.join();
   }
+}
+
+size_t FiberTaskScheduler::_get_stream() {
+  // choose the stream with the least number of enqueued tasks
+  size_t stream_id;
+  {
+    _stream_mtx.lock();
+    stream_id = std::distance(
+      _in_stream_tasks.begin(), 
+      std::max_element(_in_stream_tasks.begin(), _in_stream_tasks.end())
+    );
+    ++_in_stream_tasks[stream_id];
+    _stream_mtx.unlock();
+  }
+  return stream_id;
 }

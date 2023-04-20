@@ -16,7 +16,7 @@ int main(int argc, char* argv[]) {
 
   std::pair<double, double> time_pair;
 
-  FiberGraphExecutor executor(*cfg.g_ptr, 0, cfg.num_threads); 
+  FiberGraphExecutor executor(*cfg.g_ptr, 0, cfg.num_threads, cfg.num_streams); 
   time_pair = executor.run(cfg.benchmark, cfg.benchmark_args);
   
   std::cout << "Construction time: " 
