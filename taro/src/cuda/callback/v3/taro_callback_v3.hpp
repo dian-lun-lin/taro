@@ -187,7 +187,7 @@ TaroCBV3::TaroCBV3(size_t num_threads, size_t num_streams):
 
   // GPU streams
   _in_stream_tasks.resize(num_streams, 0);
-  _streams.reserve(num_streams);
+  _streams.resize(num_streams);
   for(size_t i = 0; i < num_streams; ++i) {
     _streams[i].id = i;
     cudaStreamCreateWithFlags(&(_streams[i].st), cudaStreamNonBlocking);
