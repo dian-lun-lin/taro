@@ -8,11 +8,13 @@
 
 namespace taro { // begin of namespace taro ===================================
 
-class TaroCBV3;
+class TaroCBV4;
 
 // TODO: memory_order
 // TODO: can we assign a kenel mutex for each stream
   
+// move await_suspend to await_ready 
+//
 // work-stealing alrotihm using C++20 synchronization primitives
 // callback tries enque tasks back to original worker to minimize conext switch
 // we don't use notifier as it cannot wake up a specific waiting thread
@@ -32,16 +34,17 @@ class TaroCBV3;
 //
 // ==========================================================================
 //
-// Declaration of class TaroCBV3
+// Declaration of class TaroCBV4
 //
 // ==========================================================================
 //
 
 
-class TaroCBV3 {
+class TaroCBV4 {
 
   //friend void CUDART_CB _cuda_stream_callback_v1(cudaStream_t st, cudaError_t stat, void* void_args);
-  friend void CUDART_CB _cuda_stream_callback_v3(void* void_args);
+  friend void CUDART_CB _cuda_stream_callback_v4(void* void_args);
+  friend class Pipeline;
 
   struct cudaStream {
     cudaStream_t st;
@@ -49,18 +52,18 @@ class TaroCBV3 {
   };
 
   struct cudaCallbackData {
-    TaroCBV3* taro;
-    Coro::promise_type* prom;
+    TaroCBV4* taro;
     Worker* worker;
+    size_t task_id;
     size_t stream_id;
   };
 
 
   public:
 
-    TaroCBV3(size_t num_threads, size_t num_streams);
+    TaroCBV4(size_t num_threads, size_t num_streams);
 
-    ~TaroCBV3();
+    ~TaroCBV4();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -68,7 +71,7 @@ class TaroCBV3 {
     template <typename C, std::enable_if_t<is_coro_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
 
-    //auto suspend();
+    auto suspend();
 
     template <typename C, std::enable_if_t<is_kernel_v<C>, void>* = nullptr>
     auto cuda_suspend(C&&);
@@ -79,8 +82,13 @@ class TaroCBV3 {
 
     bool is_DAG() const;
 
-
   private:
+
+    template <typename C>
+    auto _no_pushback_suspend(C&& c);
+
+    //template <typename C>
+    //auto _transfer_suspend(C&& c);
 
     void _process(Worker& worker, Task* tp);
 
@@ -109,6 +117,7 @@ class TaroCBV3 {
     std::vector<cudaStream> _streams;
     std::vector<std::unique_ptr<Task>> _tasks;
     std::unordered_map<std::thread::id, size_t> _wids;
+    //std::map<size_t, size_t> _in_stream_tasks; // stream_id, num_tasks_in_stream
 
     std::vector<size_t> _in_stream_tasks;
     std::mutex _stream_mtx;
@@ -137,13 +146,13 @@ class TaroCBV3 {
 // ==========================================================================
 
 // cuda callback
-void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
+void CUDART_CB _cuda_stream_callback_v4(void* void_args) {
 
   // unpack
-  auto* data = (TaroCBV3::cudaCallbackData*) void_args;
+  auto* data = (TaroCBV4::cudaCallbackData*) void_args;
   auto* taro = data->taro;
-  auto* prom = data->prom;
   auto* worker = data->worker;
+  size_t task_id = data->task_id;
   size_t stream_id = data->stream_id;
   
   {
@@ -159,7 +168,7 @@ void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
     // note that there is no lock in enqueue functions
     
     std::scoped_lock lock(worker->_mtx);
-    taro->_enqueue(*worker, taro->_tasks[prom->_id].get(), TaskPriority::HIGH);
+    taro->_enqueue(*worker, taro->_tasks[task_id].get(), TaskPriority::HIGH);
   }
 
   //worker->_status.store(Worker::STAT::SIGNALED);
@@ -174,11 +183,11 @@ void CUDART_CB _cuda_stream_callback_v3(void* void_args) {
 
 // ==========================================================================
 //
-// Definition of class TaroCBV3
+// Definition of class TaroCBV4
 //
 // ==========================================================================
 
-TaroCBV3::TaroCBV3(size_t num_threads, size_t num_streams): 
+TaroCBV4::TaroCBV4(size_t num_threads, size_t num_streams): 
   _workers{num_threads}, 
   _MAX_STEALS{(num_threads + 1) << 1},
   _threads{num_threads}
@@ -242,7 +251,7 @@ TaroCBV3::TaroCBV3(size_t num_threads, size_t num_streams):
   initial_done.wait();
 }
 
-void TaroCBV3::_exploit_task(Worker& worker) {
+void TaroCBV4::_exploit_task(Worker& worker) {
 
   _exploit_task_high:
     while(auto task = worker._que.steal(TaskPriority::HIGH)) {
@@ -261,7 +270,7 @@ void TaroCBV3::_exploit_task(Worker& worker) {
 
 }
 
-bool TaroCBV3::_explore_task(Worker& worker, const std::stop_token& stop) {
+bool TaroCBV4::_explore_task(Worker& worker, const std::stop_token& stop) {
 
   size_t num_steals{0};
   size_t num_yields{0};
@@ -297,13 +306,13 @@ bool TaroCBV3::_explore_task(Worker& worker, const std::stop_token& stop) {
   return false; // stop
 }
 
-TaroCBV3::~TaroCBV3() {
+TaroCBV4::~TaroCBV4() {
   for(auto& st: _streams) {
     cudaStreamDestroy(st.st);
   }
 }
 
-void TaroCBV3::wait() {
+void TaroCBV4::wait() {
   for(auto& t: _threads) {
     t.join();
   }
@@ -312,11 +321,11 @@ void TaroCBV3::wait() {
 
 }
 
-void TaroCBV3::schedule() {
+void TaroCBV4::schedule() {
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
-    if(t->_join_counter.load() == 0) {
+    if(t->_join_counter.load() == 0 && !t->_wait_first) {
       srcs.push_back(t.get());
     }
   }
@@ -334,17 +343,17 @@ void TaroCBV3::schedule() {
 }
 
 template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
-auto TaroCBV3::cuda_suspend(C&& c) {
+auto TaroCBV4::cuda_suspend(C&& c) {
 
-  struct awaiter: std::suspend_always {
+  struct cuda_awaiter: std::suspend_always {
     std::function<void(cudaStream_t)> kernel;
     cudaCallbackData data;
 
-    explicit awaiter(TaroCBV3* taro, C&& c): kernel{std::forward<C>(c)} {
+    explicit cuda_awaiter(TaroCBV4* taro, C&& c) noexcept : kernel{std::forward<C>(c)} {
       data.taro = taro; 
     }
-    void await_suspend(std::coroutine_handle<Coro::promise_type> coro_handle) {
-
+    
+    void await_suspend(std::coroutine_handle<>) {
       // choose the best stream id
       size_t stream_id;
       {
@@ -357,10 +366,9 @@ auto TaroCBV3::cuda_suspend(C&& c) {
       }
 
       // set callback data
-      data.prom = &(coro_handle.promise());
-      data.stream_id = stream_id;
       data.worker = data.taro->_this_worker();
-
+      data.task_id = data.worker->_work_on_task_id;
+      data.stream_id = stream_id;
 
       // enqueue the kernel to the stream
       data.taro->_cb_cnt.fetch_add(1);
@@ -368,32 +376,76 @@ auto TaroCBV3::cuda_suspend(C&& c) {
         // TODO: is cudaLaunchHostFunc thread safe?
         std::scoped_lock lock(data.taro->_kernel_mtx);
         kernel(data.taro->_streams[stream_id].st);
-        cudaLaunchHostFunc(data.taro->_streams[stream_id].st, _cuda_stream_callback_v3, (void*)&data);
+        cudaLaunchHostFunc(data.taro->_streams[stream_id].st, _cuda_stream_callback_v4, (void*)&data);
       }
 
+      // TODO: maybe the kernel is super fast
+      // there can be a last chance to not suspend
+      return;
     }
-    
   };
 
-  return awaiter{this, std::forward<C>(c)};
+  return cuda_awaiter{this, std::forward<C>(c)};
+}
+
+//template <typename C>
+//auto TaroCBV4::_pipeline_suspend(C&& c, size_t transfer_task_id) {
+  //c();
+  //struct awaiter: std::suspend_always {
+    //TaroCBV4& _taro;
+    //size_t _transfer_task_id;
+    //explicit awaiter(TaroCBV4& taro, size_t transfer_task_id) noexcept : 
+      //_taro{taro}, _transfer_task_id{transfer_task_id} {}
+
+    //std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) {
+    //}
+  //};
+
+  //return awaiter{*this};
+//}
+
+template <typename C>
+auto TaroCBV4::_no_pushback_suspend(C&& c) {
+  c();
+  return std::suspend_always{};
+}
+
+auto TaroCBV4::suspend() {
+  struct awaiter: std::suspend_always {
+    TaroCBV4& _taro;
+    explicit awaiter(TaroCBV4& taro) noexcept : _taro{taro} {}
+    
+    bool await_ready() {
+      // enqueue next pipe
+      Worker* worker = _taro._this_worker();
+      size_t task_id = worker->_work_on_task_id;
+      {
+        std::scoped_lock lock(worker->_mtx);
+        _taro._enqueue(*worker, _taro._tasks[task_id].get(), TaskPriority::HIGH);
+      }
+      return false;
+    }
+  };
+
+  return awaiter{*this};
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
-TaskHandle TaroCBV3::emplace(C&& c) {
+TaskHandle TaroCBV4::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::StaticTask>{}, std::forward<C>(c));
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
 template <typename C, std::enable_if_t<is_coro_task_v<C>, void>*>
-TaskHandle TaroCBV3::emplace(C&& c) {
+TaskHandle TaroCBV4::emplace(C&& c) {
   auto t = std::make_unique<Task>(_tasks.size(), std::in_place_type_t<Task::CoroTask>{}, std::forward<C>(c));
-  std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
+  //std::get<Task::CoroTask>(t->_handle).coro._coro_handle.promise()._id = _tasks.size();
   _tasks.emplace_back(std::move(t));
   return TaskHandle{_tasks.back().get()};
 }
 
-bool TaroCBV3::is_DAG() const {
+bool TaroCBV4::is_DAG() const {
   std::stack<Task*> dfs;
   std::vector<bool> visited(_tasks.size(), false);
   std::vector<bool> in_recursion(_tasks.size(), false);
@@ -407,19 +459,22 @@ bool TaroCBV3::is_DAG() const {
   return true;
 }
 
-void TaroCBV3::_enqueue(Worker& worker, Task* tp, TaskPriority p) {
+void TaroCBV4::_enqueue(Worker& worker, Task* tp, TaskPriority p) {
   worker._que.push(tp, p);
   _pending_tasks.fetch_add(1); // make sure to add pending tasks after push
 }
 
 // this enqueue is only used by main thread
-//void TaroCBV3::_enqueue(Task* tp, TaskPriority p) {
+//void TaroCBV4::_enqueue(Task* tp, TaskPriority p) {
   //auto& worker = _workers[_cnt++ % _threads.size()];
   //worker._que.push(tp, p);
   //_pending_tasks.fetch_add(1, std::memory_order_relaxed);
 //}
 
-void TaroCBV3::_process(Worker& worker, Task* tp) {
+void TaroCBV4::_process(Worker& worker, Task* tp) {
+
+  // await_ready needs this information
+  worker._work_on_task_id = tp->_id;
 
   switch(tp->_handle.index()) {
     case Task::STATICTASK: {
@@ -434,7 +489,7 @@ void TaroCBV3::_process(Worker& worker, Task* tp) {
   }
 }
 
-void TaroCBV3::_invoke_static_task(Worker& worker, Task* tp) {
+void TaroCBV4::_invoke_static_task(Worker& worker, Task* tp) {
   std::get_if<Task::StaticTask>(&tp->_handle)->work();
   for(auto succp: tp->_succs) {
     if(succp->_join_counter.fetch_sub(1) == 1) {
@@ -448,7 +503,7 @@ void TaroCBV3::_invoke_static_task(Worker& worker, Task* tp) {
   }
 }
 
-void TaroCBV3::_notify(Worker& worker) {
+void TaroCBV4::_notify(Worker& worker) {
   size_t cnt{1};
   do {
     unsigned tmp = Worker::STAT::SLEEP;
@@ -466,7 +521,7 @@ void TaroCBV3::_notify(Worker& worker) {
   worker._status.store(Worker::STAT::SIGNALED);
 }
 
-void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
+void TaroCBV4::_invoke_coro_task(Worker& worker, Task* tp) {
   auto* coro_t = std::get_if<Task::CoroTask>(&tp->_handle);
 
   // when this thread (i.e., t1) calls cuda_suspend and insert a callback to CUDA runtime
@@ -478,14 +533,13 @@ void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
   // That is, two same coroutines are executed in parallel by t1 and t2
   // hence we use lock in each coro to check if a coroutine is in busy used 
   // done() has similar issue
-  bool done{false};
-  {
-    std::scoped_lock lock(coro_t->coro._mtx);
-    coro_t->resume();
-    done = coro_t->done();
-  }
+  coro_t->resume();
 
-  if(done) {
+  if(coro_t->done()) {
+    if(coro_t->is_handled()) {
+      return;
+    }
+    
     for(auto succp: tp->_succs) {
       if(succp->_join_counter.fetch_sub(1) == 1) {
         _enqueue(worker, succp);
@@ -499,7 +553,7 @@ void TaroCBV3::_invoke_coro_task(Worker& worker, Task* tp) {
   }
 }
 
-void TaroCBV3::_request_stop() {
+void TaroCBV4::_request_stop() {
   for(auto& w: _workers) {
     w._thread->request_stop();
     w._status.store(Worker::STAT::SIGNALED);
@@ -507,12 +561,12 @@ void TaroCBV3::_request_stop() {
   }
 }
 
-Worker* TaroCBV3::_this_worker() {
+Worker* TaroCBV4::_this_worker() {
   auto it = _wids.find(std::this_thread::get_id());
   return (it == _wids.end()) ? nullptr : &_workers[it->second];
 }
 
-bool TaroCBV3::_is_DAG(
+bool TaroCBV4::_is_DAG(
   Task* tp,
   std::vector<bool>& visited,
   std::vector<bool>& in_recursion
