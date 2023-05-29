@@ -69,6 +69,9 @@ int main() {
 ```
 
 # Pipeline
+Pipeline in Taro is extremely efficient. We leverage symmetric corotuine transfer to avoid synchroniation overhead. Our pipeline only use one atomic variable and does not have to synchronize at the first pipe.
+
+
 ```cpp
 #include <taro/cuda/taro.hpp>
 
