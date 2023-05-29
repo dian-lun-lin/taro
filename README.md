@@ -86,13 +86,13 @@ int main() {
     size_t token = pipeline.fetch_token();
     for(;token < pipeline.num_tokens(); token = pipeline.fetch_token()) {
 
-      REQUIRE(*(counter + token) == 0);
+      int h_count = token + 1;
     
       co_await taro.cuda_suspend([=](cudaStream_t st) {
         count<<<8, 32, 0, st>>>(counter + token);
       });
-    
-      REQUIRE(*(counter + token) == 1);
+      
+      assert(h_count == *(count + token));
       co_await pipeline.step();
     }
     pipeline.stop();
