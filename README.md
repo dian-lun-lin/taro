@@ -4,7 +4,7 @@
 Taro is a task-based asynchronous programming system that leverages C++ coroutines to achieve high-performance CPU-GPU computing. Taro employs a work-stealing algorithm that dynamically redistributes tasks between threads, avoiding the overhead of thread management and enabling concurrent task execution. By using coroutines, Taro enables the CPU to continue executing other tasks while waiting for the GPU to complete its work, thus avoiding blocking and improving overall performance. 
 
 
-# Example
+# Basic Usage
 ```cpp
 #include <taro/cuda/taro.hpp>
 int main() {
@@ -65,5 +65,34 @@ int main() {
   
   taro.schedule();
   taro.wait();
+}
+```
+
+# Pipeline
+```cpp
+#include <taro/cuda/taro.hpp>
+int main() {
+  int* counter;
+  cudaMallocManaged(&counter, num_pipes * num_tokens * sizeof(int));
+  cudaMemset(counter, 0, num_pipes * num_tokens * sizeof(int));
+  size_t num_pipes{5};
+  size_t num_tokens{300};
+
+  taro::Taro taro{4, 4}; // (num_threads, num_streams)
+  auto pipeline = taro::pipeline(taro, num_pipes, num_tokens); // (taro, num_pipes, num_tokens)
+
+  for(size_t p = 0; p < num_pipes; ++p) {
+    pipeline.set_pipe(p, [p, counter, &taro, &pipeline]() -> taro::Coro {
+      while(!pipeline.done(p)) {
+        auto token = pipeline.token(p);
+        int h_count = token + 1;
+        co_await taro.cuda_suspend([=, &pipeline](cudaStream_t st) {
+          count<<<8, 32, 0, st>>>(counter + p * pipeline.num_tokens() + token);
+        }); 
+        assert(h_count == *(count + p * pipeline.num_tokens() + token));
+        co_await pipeline.step(p);
+      }   
+    }); 
+  }
 }
 ```
