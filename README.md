@@ -71,12 +71,22 @@ int main() {
 # Pipeline
 ```cpp
 #include <taro/cuda/taro.hpp>
+
+template <typename T>
+__global__
+void count(T* count) {
+  unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if(idx == 0) {
+    ++(*count);
+  }
+}
+
 int main() {
-  int* counter;
-  cudaMallocManaged(&counter, num_pipes * num_tokens * sizeof(int));
-  cudaMemset(counter, 0, num_pipes * num_tokens * sizeof(int));
   size_t num_pipes{5};
   size_t num_tokens{300};
+  int* counter;
+  cudaMallocManaged(&counter, num_tokens * sizeof(int));
+  cudaMemset(counter, 0, num_tokens * sizeof(int));
 
   taro::Taro taro{4, 4}; // (num_threads, num_streams)
   auto pipeline = taro::pipeline(taro, num_pipes, num_tokens); // (taro, num_pipes, num_tokens)
