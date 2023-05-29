@@ -80,17 +80,35 @@ int main() {
 
   taro::Taro taro{4, 4}; // (num_threads, num_streams)
   auto pipeline = taro::pipeline(taro, num_pipes, num_tokens); // (taro, num_pipes, num_tokens)
+  
+  // set first pipe
+  pipeline.set_pipe(0, [counter, &taro, &pipeline]() -> taro::Coro { 
+    size_t token = pipeline.fetch_token();
+    for(;token < pipeline.num_tokens(); token = pipeline.fetch_token()) {
 
-  for(size_t p = 0; p < num_pipes; ++p) {
+      REQUIRE(*(counter + token) == 0);
+    
+      co_await taro.cuda_suspend([=](cudaStream_t st) {
+        count<<<8, 32, 0, st>>>(counter + token);
+      });
+    
+      REQUIRE(*(counter + token) == 1);
+      co_await pipeline.step();
+    }
+    pipeline.stop();
+  });
+
+  // set remaining pipes
+  for(size_t p = 1; p < num_pipes; ++p) {
     pipeline.set_pipe(p, [p, counter, &taro, &pipeline]() -> taro::Coro {
-      while(!pipeline.done(p)) {
-        auto token = pipeline.token(p);
-        int h_count = token + 1;
+      while(1) {
+        auto token = pipeline.token();
+        int h_count = token + p + 1;
         co_await taro.cuda_suspend([=, &pipeline](cudaStream_t st) {
-          count<<<8, 32, 0, st>>>(counter + p * pipeline.num_tokens() + token);
+          count<<<8, 32, 0, st>>>(counter + token);
         }); 
-        assert(h_count == *(count + p * pipeline.num_tokens() + token));
-        co_await pipeline.step(p);
+        assert(h_count == *(count + token));
+        co_await pipeline.step();
       }   
     }); 
   }
