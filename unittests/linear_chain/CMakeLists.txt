@@ -3,6 +3,7 @@ list(APPEND LINEAR_CHAIN_UNITTESTS
   callback_v1
   callback_v2
   callback_v3
+  callback_v4
   poll_v1
 )
 

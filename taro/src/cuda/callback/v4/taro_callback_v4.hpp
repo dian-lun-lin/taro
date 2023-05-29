@@ -112,6 +112,8 @@ class TaroCBV4 {
 
     void _notify(Worker& worker);
 
+    void _done(size_t task_id);
+
     std::vector<std::jthread> _threads;
     std::vector<Worker> _workers;
     std::vector<cudaStream> _streams;
@@ -590,6 +592,27 @@ bool TaroCBV4::_is_DAG(
   in_recursion[tp->_id] = false;
 
   return true;
+}
+
+// notify the scheduler this task is done
+void TaroCBV4::_done(size_t task_id) {
+  Worker& worker = *_this_worker();
+  auto* tp = _tasks[task_id].get();
+  auto* coro_t = std::get_if<Task::CoroTask>(&tp->_handle);
+  if(coro_t->is_handled()) {
+    return;
+  }
+  
+  for(auto succp: tp->_succs) {
+    if(succp->_join_counter.fetch_sub(1) == 1) {
+      _enqueue(worker, succp);
+      _notify(worker);
+    }
+  }
+
+  if(_finished.fetch_add(1) + 1 == _tasks.size()) {
+    _request_stop();
+  }
 }
 
 
