@@ -49,6 +49,7 @@ struct Coro { // Coroutine needs to be struct
 //
 // ==========================================================================
 
+inline
 Coro::Coro(promise_type* p): _coro_handle{std::coroutine_handle<promise_type>::from_promise(*p)} {
 }
 
@@ -60,16 +61,19 @@ Coro::Coro(promise_type* p): _coro_handle{std::coroutine_handle<promise_type>::f
   //return *this;
 //}
 
+inline
 Coro::~Coro() { 
   if(_coro_handle) { 
     _coro_handle.destroy(); 
   }
 }
 
+inline
 void Coro::_resume() {
   _coro_handle.resume();
 }
 
+inline
 bool Coro::_done() {
   return _coro_handle.done();
 }

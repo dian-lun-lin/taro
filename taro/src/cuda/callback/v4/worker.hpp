@@ -1,5 +1,6 @@
 #pragma once
 #include "wsq.hpp"
+#include "task.hpp"
 
 namespace taro { // begin of namespace taro ===================================
 
