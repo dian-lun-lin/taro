@@ -133,6 +133,7 @@ template <typename... Args>
 Task::Task(size_t id, Args&&... args):_id{id}, _handle{std::forward<Args>(args)...} {
 }
 
+inline
 void Task::_precede(Task* tp) {
   _succs.push_back(tp);
   tp->_preds.push_back(this);
@@ -177,22 +178,27 @@ class TaskHandle {
 //
 // ==========================================================================
 //
+inline
 TaskHandle::TaskHandle(): _tp{nullptr} {
 }
 
+inline
 TaskHandle::TaskHandle(Task* tp): _tp{tp} {
 }
 
+inline
 TaskHandle& TaskHandle::precede(TaskHandle ch) {
   _tp->_precede(ch._tp);
   return *this;
 }
 
+inline
 TaskHandle& TaskHandle::succeed(TaskHandle ch) {
   ch._tp->_precede(_tp);
   return *this;
 }
 
+inline
 size_t TaskHandle::id() {
   return _tp->_id;
 }
