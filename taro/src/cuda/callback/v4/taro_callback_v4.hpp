@@ -84,12 +84,6 @@ class TaroCBV4 {
 
   private:
 
-    template <typename C>
-    auto _no_pushback_suspend(C&& c);
-
-    //template <typename C>
-    //auto _transfer_suspend(C&& c);
-
     void _process(Worker& worker, Task* tp);
 
     void _enqueue(Worker& worker, Task* tp, TaskPriority p = TaskPriority::LOW);
@@ -114,12 +108,13 @@ class TaroCBV4 {
 
     void _done(size_t task_id);
 
+    void _init();
+
     std::vector<std::jthread> _threads;
     std::vector<Worker> _workers;
     std::vector<cudaStream> _streams;
     std::vector<std::unique_ptr<Task>> _tasks;
     std::unordered_map<std::thread::id, size_t> _wids;
-    //std::map<size_t, size_t> _in_stream_tasks; // stream_id, num_tasks_in_stream
 
     std::vector<size_t> _in_stream_tasks;
     std::mutex _stream_mtx;
@@ -225,7 +220,6 @@ TaroCBV4::TaroCBV4(size_t num_threads, size_t num_streams):
 
       // begin of task scheduling ===================================================
       worker->_status.wait(Worker::STAT::SLEEP);
-      //worker._status.wait(Worker::STAT::SLEEP);
 
       do {
         worker->_status.store(Worker::STAT::BUSY);
@@ -323,11 +317,21 @@ void TaroCBV4::wait() {
 
 }
 
+void TaroCBV4::_init() {
+  if(_finished != 0) {
+    _finished = 0;
+    for(auto& t: _tasks) {
+      t->_join_counter.store(t->_preds.size(), std::memory_order_relaxed);
+    }
+  }
+}
+
 void TaroCBV4::schedule() {
+  _init();
 
   std::vector<Task*> srcs;
   for(auto& t: _tasks) {
-    if(t->_join_counter.load() == 0 && !t->_wait_first) {
+    if(t->_join_counter.load(std::memory_order_relaxed) == 0 && !t->_wait_first) {
       srcs.push_back(t.get());
     }
   }
@@ -388,28 +392,6 @@ auto TaroCBV4::cuda_suspend(C&& c) {
   };
 
   return cuda_awaiter{this, std::forward<C>(c)};
-}
-
-//template <typename C>
-//auto TaroCBV4::_pipeline_suspend(C&& c, size_t transfer_task_id) {
-  //c();
-  //struct awaiter: std::suspend_always {
-    //TaroCBV4& _taro;
-    //size_t _transfer_task_id;
-    //explicit awaiter(TaroCBV4& taro, size_t transfer_task_id) noexcept : 
-      //_taro{taro}, _transfer_task_id{transfer_task_id} {}
-
-    //std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) {
-    //}
-  //};
-
-  //return awaiter{*this};
-//}
-
-template <typename C>
-auto TaroCBV4::_no_pushback_suspend(C&& c) {
-  c();
-  return std::suspend_always{};
 }
 
 auto TaroCBV4::suspend() {
@@ -526,15 +508,6 @@ void TaroCBV4::_notify(Worker& worker) {
 void TaroCBV4::_invoke_coro_task(Worker& worker, Task* tp) {
   auto* coro_t = std::get_if<Task::CoroTask>(&tp->_handle);
 
-  // when this thread (i.e., t1) calls cuda_suspend and insert a callback to CUDA runtime
-  // the CUDA runtime may finish cuda kernel very fast and 
-  // use its own CPU thread to call the callback to enque the coroutine back
-  // then, another thread (i.e., t2) may get this coroutine and performs resume()
-  // However, t1 may still in resume()
-  // which in turn causing data race
-  // That is, two same coroutines are executed in parallel by t1 and t2
-  // hence we use lock in each coro to check if a coroutine is in busy used 
-  // done() has similar issue
   coro_t->resume();
 
   if(coro_t->done()) {
