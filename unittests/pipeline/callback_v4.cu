@@ -2,6 +2,7 @@
 #include <doctest.h>
 #include <taro.hpp>
 #include <taro/src/cuda/callback/v4/pipeline.hpp>
+#include <taro/src/cuda/callback/v4/cuda.hpp>
 #include <taro/src/cuda/algorithm.hpp>
 #include <vector>
 #include <algorithm>
@@ -25,17 +26,18 @@ void pipeline_cbv4(size_t num_threads, size_t num_streams, size_t num_pipes, siz
   cudaMallocManaged(&counter, num_tokens * sizeof(int));
   cudaMemset(counter, 0, num_tokens * sizeof(int));
 
-  taro::TaroCBV4 taro{num_threads, num_streams};
+  taro::TaroCBV4 taro{num_threads};
+  auto cuda = taro.cuda_scheduler(num_streams);
   auto pipeline = taro::pipeline(taro, num_pipes, num_lines, num_tokens);
 
   // first pipe
-  pipeline.set_pipe(0, [counter, &taro, &pipeline]() -> taro::Coro {
+  pipeline.set_pipe(0, [counter, &cuda, &pipeline]() -> taro::Coro {
     size_t token = pipeline.fetch_token();
     for(;token < pipeline.num_tokens(); token = pipeline.fetch_token()) {
 
       REQUIRE(*(counter + token) == 0); 
 
-      co_await taro.cuda_suspend([=](cudaStream_t st) {
+      co_await cuda.suspend_callback([=](cudaStream_t st) {
         count<<<8, 32, 0, st>>>(counter + token);
       });
 
@@ -49,13 +51,13 @@ void pipeline_cbv4(size_t num_threads, size_t num_streams, size_t num_pipes, siz
   });
 
   for(size_t p = 1; p < num_pipes; ++p) {
-    pipeline.set_pipe(p, [p, counter, &taro, &pipeline]() -> taro::Coro {
+    pipeline.set_pipe(p, [p, counter, &cuda, &pipeline]() -> taro::Coro {
       while(1) {
         size_t token = pipeline.token();
 
         REQUIRE(*(counter + token) == p); 
 
-        co_await taro.cuda_suspend([=](cudaStream_t st) {
+        co_await cuda.suspend_callback([=](cudaStream_t st) {
           count<<<8, 32, 0, st>>>(counter + token);
         });
 

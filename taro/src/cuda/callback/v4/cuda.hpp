@@ -1,6 +1,7 @@
 #pragma once
 
 #include "taro_callback_v4.hpp"
+#include "coro.hpp"
 
 namespace taro { // begin of namespace taro ===================================
 
@@ -9,7 +10,8 @@ namespace taro { // begin of namespace taro ===================================
 class cudaScheduler {
 
   friend class TaroCBV4;
-  friend void CUDART_CB _cuda_done(void* void_args);
+  friend void _cuda_callback(void* void_args);
+  friend void _cuda_polling(void* void_args);
 
   struct cudaCallbackData {
     cudaScheduler* cuda;
@@ -31,7 +33,7 @@ class cudaScheduler {
     cudaStream_t st;
   };
 
-  friend Coro _cuda_polling(cudaPollingData&);
+  friend Coro _cuda_polling_query(cudaPollingData&);
 
   public:
 
@@ -86,7 +88,7 @@ cudaScheduler::~cudaScheduler() {
 
 // cuda callback
 inline
-void _cuda_done(void* void_args) {
+void _cuda_callback(void* void_args) {
 
   // unpack
   auto* data = (cudaScheduler::cudaCallbackData*) void_args;
@@ -117,13 +119,44 @@ void _cuda_done(void* void_args) {
   taro._cb_cnt.fetch_sub(1);
 }
 
-Coro _cuda_polling(cudaScheduler::cudaPollingData& data) {
+inline
+void _cuda_polling(void* void_args) {
+
+  // unpack
+  auto* data = (cudaScheduler::cudaPollingData*) void_args;
+  auto* cuda = data->cuda;
+  auto& taro = cuda->_taro;
+  auto* worker = data->worker;
+  size_t task_id = data->task_id;
+  size_t stream_id = data->stream_id;
+  
+  cuda->_release_stream(stream_id);
+
+  {
+    // high priortiy queue is owned by the callback function
+    // Due to CUDA runtime, we cannot guarntee whether the cuda callback function is called sequentially
+    // we need a lock to atomically enqueue the task
+    // note that there is no lock in enqueue functions
+    
+    std::scoped_lock lock(worker->_mtx);
+    taro._enqueue(*worker, taro._tasks[task_id].get(), TaskPriority::HIGH);
+  }
+
+  //worker->_status.store(Worker::STAT::SIGNALED);
+  if(worker->_status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
+    worker->_status.notify_one();
+  }
+  taro._notify(*worker);
+}
+
+Coro _cuda_polling_query(cudaScheduler::cudaPollingData& data) {
   while(cudaEventQuery(data.event) != cudaSuccess) {
     co_await data.cuda->_taro.suspend(data.ptask.get());
   }
   cudaEventDestroy(data.event);
-  _cuda_done((void*)&data);
+  _cuda_polling((void*)&data);
 }
+
 
 // ==========================================================================
 //
@@ -162,14 +195,8 @@ auto cudaScheduler::suspend_polling(C&& c) {
       }
 
       // TODO: meaning of task id
-      //data.ptask  = std::make_unique<Task>(-1, std::in_place_type_t<Task::CoroTask>{}, std::bind(_cuda_polling, data));
-      data.ptask  = std::make_unique<Task>(-1, std::in_place_type_t<Task::CoroTask>{}, [&]() -> Coro {
-        while(cudaEventQuery(data.event) != cudaSuccess) {
-          co_await data.cuda->_taro.suspend(data.ptask.get());
-        }
-        cudaEventDestroy(data.event);
-        _cuda_done((void*)&data);
-      });
+      // TODO: don't know why I cannot use lambda of coroutine here...
+      data.ptask  = std::make_unique<Task>(-1, std::in_place_type_t<Task::CoroTask>{}, std::bind(_cuda_polling_query, std::ref(data)));
       std::get_if<Task::CoroTask>(&data.ptask.get()->_handle)->set_inner();
       
       data.cuda->_taro._enqueue(*data.worker, data.ptask.get(), TaskPriority::LOW);
@@ -239,7 +266,7 @@ auto cudaScheduler::suspend_callback(C&& c) {
         // TODO: is cudaLaunchHostFunc thread safe?
         std::scoped_lock lock(data.cuda->_kernel_mtx);
         kernel(data.cuda->_streams[stream_id].st);
-        cudaLaunchHostFunc(data.cuda->_streams[stream_id].st, _cuda_done, (void*)&data);
+        cudaLaunchHostFunc(data.cuda->_streams[stream_id].st, _cuda_callback, (void*)&data);
       }
 
       // TODO: maybe the kernel is super fast

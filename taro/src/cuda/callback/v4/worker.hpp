@@ -15,7 +15,8 @@ class Worker {
   friend class TaroCBV4;
   friend class Pipeline;
   friend class cudaScheduler;
-  friend void CUDART_CB _cuda_done(void* void_args);
+  friend void _cuda_callback(void* void_args);
+  friend void _cuda_polling(void* void_args);
 
   public:
 
