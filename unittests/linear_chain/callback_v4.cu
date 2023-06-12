@@ -2,6 +2,7 @@
 #include <doctest.h>
 #include <taro.hpp>
 #include <taro/src/cuda/callback/v4/taro_callback_v4.hpp>
+#include <taro/src/cuda/callback/v4/cuda.hpp>
 #include <taro/src/cuda/algorithm.hpp>
 #include <vector>
 #include <algorithm>
@@ -23,14 +24,16 @@ void linear_chain_cbv4(size_t num_tasks, size_t num_threads, size_t num_streams)
   int* counter;
   cudaMallocManaged(&counter, sizeof(int));
 
-  taro::TaroCBV4 taro{num_threads, num_streams};
+  taro::TaroCBV4 taro{num_threads};
+  auto cuda = taro.cuda_scheduler(num_streams);
+
   std::vector<taro::TaskHandle> _tasks(num_tasks);
 
   for(size_t t = 0; t < num_tasks; ++t) {
-    _tasks[t] = taro.emplace([t, counter, &taro]() -> taro::Coro {
+    _tasks[t] = taro.emplace([t, counter, &cuda]() -> taro::Coro {
       REQUIRE(*counter == t); 
 
-      co_await taro.cuda_suspend([counter](cudaStream_t st) {
+      co_await cuda.suspend_callback([counter](cudaStream_t st) {
         count<<<8, 32, 0, st>>>(counter);
       });
 

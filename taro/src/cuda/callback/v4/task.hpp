@@ -10,11 +10,6 @@ namespace taro { // begin of namespace taro ===================================
 //
 // ==========================================================================
 
-class Worker;
-class Pipeline;
-class TaroCBV4;
-struct Token;
-
 template <typename C>
 constexpr bool is_static_task_v = 
   std::is_invocable_r_v<void, C> &&
@@ -27,6 +22,11 @@ constexpr bool is_static_task_v =
 template <typename C>
 constexpr bool is_coro_task_v = 
   std::is_invocable_r_v<Coro, C>;
+
+//template <typename C>
+//constexpr bool is_polling_task_v = 
+  //std::is_invocable_r_v<Coro, C>;
+  //!std::is_invocable_r_v<Coro, C>;
 
 template <typename T, typename>
 struct get_index;
@@ -56,8 +56,29 @@ constexpr auto get_index_v = get_index<T, Ts...>::value;
 class Task {
 
   friend class TaroCBV4;
+  friend class cudaScheduler;
   friend class Pipeline;
   friend class TaskHandle;
+
+  //struct PollingTask {
+    //PollingTask();
+
+    //std::function<taro::Coro()> work{[](){
+    //}};
+    //Coro coro;
+    //void resume() {
+      //coro._resume();
+    //}
+
+    //bool done() {
+      //return coro._done();
+    //}
+
+    //bool is_handled() {
+      //return _is_handled.test_and_set();
+    //}
+    //std::atomic_flag _is_handled{false};
+  //};
 
   struct CoroTask {
     template <typename C>
@@ -76,7 +97,16 @@ class Task {
     bool is_handled() {
       return _is_handled.test_and_set();
     }
+    bool is_inner() {
+      return _is_inner;
+    }
+
+    void set_inner() {
+      _is_inner = true;
+    }
+
     std::atomic_flag _is_handled{false};
+    bool _is_inner{false};
   };
 
   struct StaticTask {

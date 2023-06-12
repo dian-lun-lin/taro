@@ -2,6 +2,7 @@
 #include <doctest.h>
 #include <taro.hpp>
 #include <taro/src/cuda/callback/v4/taro_callback_v4.hpp>
+#include <taro/src/cuda/callback/v4/cuda.hpp>
 #include <taro/src/cuda/algorithm.hpp>
 #include <vector>
 #include <algorithm>
@@ -14,7 +15,8 @@
 
 
 void independent_cbv4(size_t num_threads, size_t num_streams, size_t num_tasks) {
-  taro::TaroCBV4 taro{num_threads, num_streams};
+  taro::TaroCBV4 taro{num_threads};
+  auto cuda = taro.cuda_scheduler(num_streams);
 
   std::vector<taro::TaskHandle> tasks(num_tasks);
 
@@ -39,8 +41,8 @@ void independent_cbv4(size_t num_threads, size_t num_streams, size_t num_tasks) 
   }
 
   for(size_t i = 0; i < num_tasks; ++i) {
-    tasks[i] = taro.emplace([&taro, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
-      co_await taro.cuda_suspend([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
+    tasks[i] = taro.emplace([&cuda, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
+      co_await cuda.suspend_polling([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
         taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
       });
 

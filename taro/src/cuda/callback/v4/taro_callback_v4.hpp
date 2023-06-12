@@ -9,6 +9,7 @@
 namespace taro { // begin of namespace taro ===================================
 
 class TaroCBV4;
+class cudaScheduler;
 
 // TODO: memory_order
 // TODO: can we assign a kenel mutex for each stream
@@ -42,28 +43,13 @@ class TaroCBV4;
 
 class TaroCBV4 {
 
-  //friend void CUDART_CB _cuda_stream_callback_v1(cudaStream_t st, cudaError_t stat, void* void_args);
-  friend void CUDART_CB _cuda_stream_callback_v4(void* void_args);
   friend class Pipeline;
-
-  struct cudaStream {
-    cudaStream_t st;
-    size_t id;
-  };
-
-  struct cudaCallbackData {
-    TaroCBV4* taro;
-    Worker* worker;
-    size_t task_id;
-    size_t stream_id;
-  };
-
+  friend class cudaScheduler;
+  friend void CUDART_CB _cuda_done(void* void_args);
 
   public:
 
-    TaroCBV4(size_t num_threads, size_t num_streams);
-
-    ~TaroCBV4();
+    TaroCBV4(size_t num_threads);
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -73,14 +59,16 @@ class TaroCBV4 {
 
     auto suspend();
 
-    template <typename C, std::enable_if_t<is_kernel_v<C>, void>* = nullptr>
-    auto cuda_suspend(C&&);
+    auto suspend(Task* task);
 
     void schedule();
 
     void wait();
 
     bool is_DAG() const;
+
+    // CUDA scheduler declare
+    cudaScheduler cuda_scheduler(size_t num_streams);
 
   private:
 
@@ -112,72 +100,16 @@ class TaroCBV4 {
 
     std::vector<std::jthread> _threads;
     std::vector<Worker> _workers;
-    std::vector<cudaStream> _streams;
     std::vector<std::unique_ptr<Task>> _tasks;
     std::unordered_map<std::thread::id, size_t> _wids;
-
-    std::vector<size_t> _in_stream_tasks;
-    std::mutex _stream_mtx;
-    std::mutex _kernel_mtx;
-
-    std::atomic<size_t> _finished{0};
-
-    // _pending_tasks uses int64_t as its type
-    // consider this situation:
-    //
-    // _pending_tasks = 0
-    // worker._que.push(task) 
-    // thread A steal this task (_pending_tasks.fetch_sub(1));
-    // _pending_task.fetch_add(1);
-    // if we use size_t, we will get issue as size_t cannot be negative
     std::atomic<int64_t> _pending_tasks{0}; 
-    std::atomic<size_t> _cb_cnt{0};
-    size_t _cnt{0};
+    std::atomic<size_t> _finished{0};
     size_t _MAX_STEALS;
+    size_t _cnt{0};
+    std::atomic<size_t> _cb_cnt{0};
+
 };
 
-// ==========================================================================
-//
-// callback
-//
-// ==========================================================================
-
-// cuda callback
-inline
-void CUDART_CB _cuda_stream_callback_v4(void* void_args) {
-
-  // unpack
-  auto* data = (TaroCBV4::cudaCallbackData*) void_args;
-  auto* taro = data->taro;
-  auto* worker = data->worker;
-  size_t task_id = data->task_id;
-  size_t stream_id = data->stream_id;
-  
-  {
-    std::scoped_lock lock(taro->_stream_mtx);
-    --taro->_in_stream_tasks[stream_id];
-  }
-
-
-  {
-    // high priortiy queue is owned by the callback function
-    // Due to CUDA runtime, we cannot guarntee whether the cuda callback function is called sequentially
-    // we need a lock to atomically enqueue the task
-    // note that there is no lock in enqueue functions
-    
-    std::scoped_lock lock(worker->_mtx);
-    taro->_enqueue(*worker, taro->_tasks[task_id].get(), TaskPriority::HIGH);
-  }
-
-  //worker->_status.store(Worker::STAT::SIGNALED);
-  if(worker->_status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
-    worker->_status.notify_one();
-  }
-  taro->_notify(*worker);
-
-  taro->_cb_cnt.fetch_sub(1);
-
-}
 
 // ==========================================================================
 //
@@ -186,21 +118,11 @@ void CUDART_CB _cuda_stream_callback_v4(void* void_args) {
 // ==========================================================================
 
 inline
-TaroCBV4::TaroCBV4(size_t num_threads, size_t num_streams): 
+TaroCBV4::TaroCBV4(size_t num_threads): 
   _workers{num_threads}, 
   _MAX_STEALS{(num_threads + 1) << 1},
   _threads{num_threads}
 {
-
-  //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
-
-  // GPU streams
-  _in_stream_tasks.resize(num_streams, 0);
-  _streams.resize(num_streams);
-  for(size_t i = 0; i < num_streams; ++i) {
-    _streams[i].id = i;
-    cudaStreamCreateWithFlags(&(_streams[i].st), cudaStreamNonBlocking);
-  }
 
   // TODO num_threads has warning (invalid conversion: unsigned long to long)
   std::latch initial_done{int(_workers.size())};
@@ -247,6 +169,50 @@ TaroCBV4::TaroCBV4(size_t num_threads, size_t num_streams):
   }
 
   initial_done.wait();
+}
+
+inline
+auto TaroCBV4::suspend() {
+  struct awaiter: std::suspend_always {
+    TaroCBV4& _taro;
+    explicit awaiter(TaroCBV4& taro) noexcept : _taro{taro} {}
+    
+    bool await_ready() {
+      // enqueue next pipe
+      Worker* worker = _taro._this_worker();
+      size_t task_id = worker->_work_on_task_id;
+      {
+        std::scoped_lock lock(worker->_mtx);
+        _taro._enqueue(*worker, _taro._tasks[task_id].get(), TaskPriority::HIGH);
+      }
+      return false;
+    }
+  };
+
+  return awaiter{*this};
+}
+
+inline
+auto TaroCBV4::suspend(Task* task) {
+  Worker* worker = _this_worker();
+  
+  struct awaiter: std::suspend_always {
+    TaroCBV4& _taro;
+    Worker* _worker;
+    Task* _task;
+    explicit awaiter(TaroCBV4& taro, Worker* worker, Task* task) noexcept : _taro{taro}, _worker{worker}, _task{task} {}
+    
+    bool await_ready() {
+      _taro._enqueue(*_worker, _task, TaskPriority::LOW);
+      return false;
+    }
+    void await_suspend(std::coroutine_handle<> coro) {
+    }
+    void await_resume() {
+    }
+  };
+
+  return awaiter{*this, worker, task};
 }
 
 inline
@@ -307,20 +273,12 @@ bool TaroCBV4::_explore_task(Worker& worker, const std::stop_token& stop) {
 }
 
 inline
-TaroCBV4::~TaroCBV4() {
-  for(auto& st: _streams) {
-    cudaStreamDestroy(st.st);
-  }
-}
-
-inline
 void TaroCBV4::wait() {
   for(auto& t: _threads) {
     t.join();
   }
   
   while(_cb_cnt != 0) {}
-
 }
 
 inline
@@ -354,73 +312,6 @@ void TaroCBV4::schedule() {
     _workers[i]._status.store(Worker::STAT::SIGNALED);
     _workers[i]._status.notify_one();
   }
-}
-
-template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
-auto TaroCBV4::cuda_suspend(C&& c) {
-
-  struct cuda_awaiter: std::suspend_always {
-    std::function<void(cudaStream_t)> kernel;
-    cudaCallbackData data;
-
-    explicit cuda_awaiter(TaroCBV4* taro, C&& c) noexcept : kernel{std::forward<C>(c)} {
-      data.taro = taro; 
-    }
-    
-    void await_suspend(std::coroutine_handle<>) {
-      // choose the best stream id
-      size_t stream_id;
-      {
-        std::scoped_lock lock(data.taro->_stream_mtx);
-        stream_id = std::distance(
-          data.taro->_in_stream_tasks.begin(), 
-          std::min_element(data.taro->_in_stream_tasks.begin(), data.taro->_in_stream_tasks.end())
-        );
-        ++data.taro->_in_stream_tasks[stream_id];
-      }
-
-      // set callback data
-      data.worker = data.taro->_this_worker();
-      data.task_id = data.worker->_work_on_task_id;
-      data.stream_id = stream_id;
-
-      // enqueue the kernel to the stream
-      data.taro->_cb_cnt.fetch_add(1);
-      {
-        // TODO: is cudaLaunchHostFunc thread safe?
-        std::scoped_lock lock(data.taro->_kernel_mtx);
-        kernel(data.taro->_streams[stream_id].st);
-        cudaLaunchHostFunc(data.taro->_streams[stream_id].st, _cuda_stream_callback_v4, (void*)&data);
-      }
-
-      // TODO: maybe the kernel is super fast
-      // there can be a last chance to not suspend
-      return;
-    }
-  };
-
-  return cuda_awaiter{this, std::forward<C>(c)};
-}
-
-inline
-auto TaroCBV4::suspend() {
-  struct awaiter: std::suspend_always {
-    TaroCBV4& _taro;
-    explicit awaiter(TaroCBV4& taro) noexcept : _taro{taro} {}
-    
-    bool await_ready() {
-      // enqueue next pipe
-      Worker* worker = _taro._this_worker();
-      size_t task_id = worker->_work_on_task_id;
-      {
-        std::scoped_lock lock(worker->_mtx);
-        _taro._enqueue(*worker, _taro._tasks[task_id].get(), TaskPriority::HIGH);
-      }
-      return false;
-    }
-  };
-
-  return awaiter{*this};
 }
 
 template <typename C, std::enable_if_t<is_static_task_v<C>, void>*>
