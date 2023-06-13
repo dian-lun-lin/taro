@@ -41,9 +41,21 @@ void independent(size_t num_threads, size_t num_streams, size_t num_tasks) {
 
   for(size_t i = 0; i < num_tasks; ++i) {
     tasks[i] = taro.emplace([&cuda, i, a, b, c, M, K, N, dim_grid, dim_block]() -> taro::Coro {
-      co_await cuda.suspend_callback([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
-        taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
-      });
+      if(i % 3 == 0) {
+        co_await cuda.suspend_callback([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
+          taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
+        });
+      }
+      else if (i % 3 == 1){
+        co_await cuda.suspend_polling([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
+          taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
+        });
+      }
+      else {
+        cuda.wait([a, b, c, i, M, K, N, dim_grid, dim_block](cudaStream_t st) {
+          taro::cuda_matmul<<<dim_grid, dim_block, 0, st>>>(a, b, c + i * M * N, M, K, N);
+        });
+      }
 
       for(size_t k = 0; k < M * N; ++k) {
         REQUIRE(c[k + i * M * N] == (int)(M + K) * (K + N) * K);

@@ -31,12 +31,24 @@ void linear_chain(size_t num_tasks, size_t num_threads, size_t num_streams) {
   for(size_t t = 0; t < num_tasks; ++t) {
     _tasks[t] = taro.emplace([t, counter, &cuda]() -> taro::Coro {
       REQUIRE(*counter == t); 
-
-      co_await cuda.suspend_callback([counter](cudaStream_t st) {
-        count<<<8, 32, 0, st>>>(counter);
-      });
+      if(t % 3 == 0) {
+        co_await cuda.suspend_callback([counter](cudaStream_t st) {
+          count<<<8, 32, 0, st>>>(counter);
+        });
+      }
+      else if(t % 3 == 1) {
+        co_await cuda.suspend_polling([counter](cudaStream_t st) {
+          count<<<8, 32, 0, st>>>(counter);
+        });
+      }
+      else {
+        cuda.wait([counter](cudaStream_t st) {
+          count<<<8, 32, 0, st>>>(counter);
+        });
+      }
 
       REQUIRE(*counter == t + 1); 
+      co_return;
     });
   }
 

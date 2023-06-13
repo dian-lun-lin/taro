@@ -17,10 +17,10 @@ class cudaScheduler {
   };
   struct cudaPollingData {
     cudaScheduler* cuda;
+    Task* ptask; // polling task
     Worker* worker;
     size_t task_id;
     size_t stream_id;
-    std::unique_ptr<Task> ptask;
     cudaEvent_t event;
   };
 
@@ -55,7 +55,7 @@ class cudaScheduler {
     void _release_stream(size_t stream_id);
 
     std::vector<cudaStream> _streams;
-    std::queue<cudaPollingData> _pevents;
+    std::vector<std::unique_ptr<Task>> _ptasks;
     std::vector<size_t> _in_stream_tasks;
     std::mutex _stream_mtx;
     std::mutex _kernel_mtx;
@@ -117,7 +117,10 @@ void _cuda_callback(void* void_args) {
   }
   taro._notify(*worker);
 
-  taro._cb_cnt.fetch_sub(1);
+  // if we don't have counter,
+  // taro will not wait for this function to finish
+  // and may be destroyed, inducing seg fault
+  taro._callback_polling_cnt.fetch_sub(1);
 }
 
 inline
@@ -143,11 +146,16 @@ void _cuda_polling(void* void_args) {
     worker->_status.notify_one();
   }
   taro._notify(*worker);
+
+  // if we don't have counter,
+  // taro will not wait for this function to finish
+  // and may be destroyed, inducing seg fault
+  taro._callback_polling_cnt.fetch_sub(1);
 }
 
 Coro _cuda_polling_query(cudaScheduler::cudaPollingData& data) {
   while(cudaEventQuery(data.event) != cudaSuccess) {
-    co_await data.cuda->_taro.suspend(data.ptask.get());
+    co_await data.cuda->_taro.suspend(data.ptask);
   }
   cudaEventDestroy(data.event);
   _cuda_polling((void*)&data);
@@ -180,7 +188,7 @@ auto cudaScheduler::suspend_callback(C&& c) {
       data.stream_id = stream_id;
 
       // enqueue the kernel to the stream
-      data.cuda->_taro._cb_cnt.fetch_add(1);
+      data.cuda->_taro._callback_polling_cnt.fetch_add(1);
       {
         // TODO: is cudaLaunchHostFunc thread safe?
         std::scoped_lock lock(data.cuda->_kernel_mtx);
@@ -223,14 +231,15 @@ auto cudaScheduler::suspend_polling(C&& c) {
         std::scoped_lock lock(data.cuda->_kernel_mtx);
         kernel(data.cuda->_streams[stream_id].st);
         cudaEventRecord(e, data.cuda->_streams[stream_id].st);
+        data.ptask = data.cuda->_ptasks.emplace_back(
+          std::make_unique<Task>(-1, std::in_place_type_t<Task::CoroTask>{}, std::bind(_cuda_polling_query, std::ref(data)))
+        ).get();
       }
 
-      // TODO: meaning of task id
-      // TODO: don't know why I cannot use lambda of coroutine here...
-      data.ptask  = std::make_unique<Task>(-1, std::in_place_type_t<Task::CoroTask>{}, std::bind(_cuda_polling_query, std::ref(data)));
-      std::get_if<Task::CoroTask>(&data.ptask.get()->_handle)->set_inner();
+      std::get_if<Task::CoroTask>(&data.ptask->_handle)->set_inner();
       
-      data.cuda->_taro._enqueue(*data.worker, data.ptask.get(), TaskPriority::LOW);
+      data.cuda->_taro._callback_polling_cnt.fetch_add(1);
+      data.cuda->_taro._enqueue(*data.worker, data.ptask, TaskPriority::LOW);
 
       return;
     }
@@ -245,7 +254,7 @@ auto cudaScheduler::wait(C&& c) {
   size_t stream_id = _acquire_stream();
   cudaEvent_t e;
   cudaEventCreateWithFlags(&e, cudaEventDisableTiming);
-  c(stream_id);
+  c(_streams[stream_id].st);
   cudaEventRecord(e, _streams[stream_id].st);
   cudaEventSynchronize(e);
   _release_stream(stream_id);

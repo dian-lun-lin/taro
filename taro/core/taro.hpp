@@ -108,7 +108,7 @@ class Taro {
     std::atomic<size_t> _finished{0};
     size_t _MAX_STEALS;
     size_t _cnt{0};
-    std::atomic<size_t> _cb_cnt{0};
+    std::atomic<size_t> _callback_polling_cnt{0};
 
 };
 
@@ -280,7 +280,7 @@ void Taro::wait() {
     t.join();
   }
   
-  while(_cb_cnt != 0) {}
+  while(_callback_polling_cnt != 0) {}
 }
 
 inline
