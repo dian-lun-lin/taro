@@ -1,5 +1,4 @@
 #pragma once
-
 #include <taro/declarations.hpp>
 #include <taro/utility/cuda.hpp>
 #include "notifier.hpp"
@@ -254,6 +253,7 @@ bool TaroOblivious::_wait_for_task(Worker& worker, const std::stop_token& stop) 
   }
 
   if(stop.stop_requested()) {
+    _notifier.notify(true);
     return false;
   }
 
