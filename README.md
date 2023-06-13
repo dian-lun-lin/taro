@@ -6,7 +6,8 @@ Taro is a task-based asynchronous programming system that leverages C++ coroutin
 
 # Basic Usage
 ```cpp
-#include <taro/cuda/taro.hpp>
+#include <taro.hpp>
+#include <taro/scheduler/cuda.hpp>
 int main() {
   taro::Taro taro{4}; // number of threads
   auto cuda = taro.cuda_scheduler(4); // number of cuda streams
@@ -75,6 +76,8 @@ Pipeline in Taro is extremely efficient. We leverage symmetric corotuine transfe
 
 ```cpp
 #include <taro/cuda/taro.hpp>
+#include <taro/scheduler/cuda.hpp>
+#include <taro/scheduler/pipeline.hpp>
 
 template <typename T>
 __global__
@@ -92,17 +95,18 @@ int main() {
   cudaMallocManaged(&counter, num_tokens * sizeof(int));
   cudaMemset(counter, 0, num_tokens * sizeof(int));
 
-  taro::Taro taro{4, 4}; // (num_threads, num_streams)
-  auto pipeline = taro::pipeline(taro, num_pipes, num_tokens); // (taro, num_pipes, num_tokens)
+  taro::Taro taro{4}; // number of threads
+  auto cuda = taro.cuda_scheduler(4); // number of cuda streams
+  auto pipeline = taro.pipeline_scheduler(num_pipes, num_lines, num_tokens); // (num_pipes, num_lines, num_tokens)
   
   // set first pipe
-  pipeline.set_pipe(0, [counter, &taro, &pipeline]() -> taro::Coro { 
+  pipeline.set_pipe(0, [counter, &cuda, &pipeline]() -> taro::Coro { 
     size_t token = pipeline.fetch_token();
     for(;token < pipeline.num_tokens(); token = pipeline.fetch_token()) {
 
       int h_count = token + 1;
     
-      co_await taro.cuda_suspend([=](cudaStream_t st) {
+      co_await cuda.suspend_callback([=](cudaStream_t st) {
         count<<<8, 32, 0, st>>>(counter + token);
       });
       
@@ -114,11 +118,11 @@ int main() {
 
   // set remaining pipes
   for(size_t p = 1; p < num_pipes; ++p) {
-    pipeline.set_pipe(p, [p, counter, &taro, &pipeline]() -> taro::Coro {
+    pipeline.set_pipe(p, [p, counter, &cuda, &pipeline]() -> taro::Coro {
       while(1) {
         auto token = pipeline.token();
         int h_count = token + p + 1;
-        co_await taro.cuda_suspend([=, &pipeline](cudaStream_t st) {
+        co_await cuda.suspend_callback([=, &pipeline](cudaStream_t st) {
           count<<<8, 32, 0, st>>>(counter + token);
         }); 
         assert(h_count == *(count + token));
