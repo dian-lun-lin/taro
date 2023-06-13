@@ -16,8 +16,8 @@
 #include "map_reduce/diamond.hpp"
 #include "wavefront/wavefront_graph.hpp"
 
-#include <taskflow/taskflow/cuda/algorithm/reduce.hpp>
-#include <taro/src/cuda/algorithm.hpp>
+#include "../scheduler/taskflow/taskflow/cuda/algorithm/reduce.hpp"
+#include <taro/algorithm/cuda.hpp>
 
 #include <chrono>
 #include <cassert>

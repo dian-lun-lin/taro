@@ -26,7 +26,7 @@
 // Public License v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-namespace taro { // begin of namespace taro =====================================================
+namespace taro {
 
 // Notifier allows to wait for arbitrary predicates in non-blocking
 // algorithms. Think of condition variable, but wait predicate does not need to
@@ -63,6 +63,9 @@ namespace taro { // begin of namespace taro ====================================
 // the waiter, or both. But it can't happen that both threads don't see each
 // other changes, which would lead to deadlock.
 class Notifier {
+
+  friend class TaroOblivious;
+  friend class Worker;
 
   public:
 
@@ -260,4 +263,6 @@ class Notifier {
 };
 
 
-}  // end of namespace taro ===========================================================
+
+}  // namespace taro ------------------------------------------------------------
+

@@ -1,8 +1,9 @@
 #pragma once
 
 #include "executor.hpp"
+#include <taro.hpp>
+#include <taro/scheduler/cuda.hpp>
 
-template <typename TARO>
 class TaroGraphExecutor: public GraphExecutor {
 
   public:
@@ -13,16 +14,15 @@ class TaroGraphExecutor: public GraphExecutor {
 
   private:
 
-    TARO _taro;
+    taro::Taro _taro;
+    taro::cudaScheduler _cuda;
 };
 
-template <typename TARO>
-TaroGraphExecutor<TARO>::TaroGraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams):
-  GraphExecutor{graph, dev_id, num_threads, num_streams}, _taro{num_threads, num_streams} {
+TaroGraphExecutor::TaroGraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams):
+  GraphExecutor{graph, dev_id, num_threads, num_streams}, _taro{num_threads, num_streams}, _cuda{_taro.cuda_scheduler(num_streams)} {
 }
 
-template <typename TARO>
-std::pair<double, double> TaroGraphExecutor<TARO>::run_loop(int cpu_time, int gpu_time) {
+std::pair<double, double> TaroGraphExecutor::run_loop(int cpu_time, int gpu_time) {
   auto constr_tic = std::chrono::steady_clock::now();
 
   size_t cnt{0};
@@ -36,7 +36,7 @@ std::pair<double, double> TaroGraphExecutor<TARO>::run_loop(int cpu_time, int gp
       // GPU computing
       tasks[l][i] = _taro.emplace([this, cpu_time, gpu_time]() mutable -> taro::Coro {
         cpu_loop(cpu_time);
-        co_await _taro.cuda_suspend([gpu_time](cudaStream_t st) mutable {
+        co_await _cuda.suspend_callback([gpu_time](cudaStream_t st) mutable {
           cuda_loop<<<8, 256, 0, st>>>(gpu_time);
         });
       });
@@ -73,8 +73,7 @@ std::pair<double, double> TaroGraphExecutor<TARO>::run_loop(int cpu_time, int gp
   return {constr_dur, exec_dur};
 }
 
-template <typename TARO>
-std::pair<double, double> TaroGraphExecutor<TARO>::run_data(int data_size) {
+std::pair<double, double> TaroGraphExecutor::run_data(int data_size) {
   auto constr_tic = std::chrono::steady_clock::now();
 
   size_t cnt{0};
@@ -98,7 +97,7 @@ std::pair<double, double> TaroGraphExecutor<TARO>::run_data(int data_size) {
           for(auto& d: cdata[cnt]) { 
             ++d; 
           }
-          co_await _taro.cuda_suspend([&cdata, &gdata, data_size, cnt](cudaStream_t st) mutable {
+          co_await _cuda.suspend_callback([&cdata, &gdata, data_size, cnt](cudaStream_t st) mutable {
             cudaMallocAsync(&gdata[cnt], sizeof(int) * data_size, st);
             cudaMemcpyAsync(gdata[cnt], cdata[cnt].data(),  sizeof(int) * data_size, cudaMemcpyHostToDevice, st);
             cuda_assign<<<16, 512, 0, st>>>(gdata[cnt], data_size);

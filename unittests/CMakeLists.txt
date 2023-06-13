@@ -9,5 +9,8 @@ list(APPEND TARO_UNITTESTS
 )
 
 foreach(unittest IN LISTS TARO_UNITTESTS)
-  add_subdirectory(${TARO_UTEST_DIR}/${unittest})
+  cuda_add_executable(${unittest} ${TARO_UTEST_DIR}/${unittest}.cu)
+  target_include_directories(${unittest} PRIVATE ${TARO_3RD_PARTY_DIR}/doctest)
+  target_link_libraries(${unittest} Threads::Threads cuda)
+  doctest_discover_tests(${unittest})
 endforeach()

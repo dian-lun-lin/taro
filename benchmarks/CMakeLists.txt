@@ -1,10 +1,9 @@
 
+add_subdirectory(scheduler/unittests)
+
 list(APPEND BENCHMARKS
-  taro_callback_taskflow
-  taro_callback_v1
-  taro_callback_v2
-  taro_callback_v3
-  taro_poll_v1
+  taro_taskflow
+  taro_oblivious
   cudaflow
 )
 
@@ -16,3 +15,4 @@ endforeach()
 # fiber
 cuda_add_executable(graph_fiber ${TARO_BENCHMARK_DIR}/graph/main/fiber.cu)
 target_link_libraries(graph_fiber boost_fiber boost_context cuda)
+

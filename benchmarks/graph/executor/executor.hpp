@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../graph.hpp"
-#include <utility>
 //#include <thrust/reduce.h>
 //#include <thrust/sort.h>
 //#include <thrust/functional.h>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "executor.hpp"
-#include "../../boost_fiber/fiber.hpp"
+#include "../../scheduler/boost_fiber/fiber.hpp"
 
 //#include <thrust/reduce.h>
 //#include <thrust/sort.h>
