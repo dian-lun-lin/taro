@@ -50,18 +50,6 @@ for m in ${MODE[@]}; do
         perf stat  -e power/energy-cores/ ../../benchmarks/graph_$m -g $GRAPH --graph_args $GRAPH_ARGS -b $BENCHMARK --benchmark_args $CPU_OVERHEAD $GPU_OVERHEAD -t $nt
       done
       echo "#####################"
-    elif [[ "$m" == "taro_callback_v2" ]]; then
-      echo "#threads: $nt, #streams: increase by algorithm"
-      for ((k=1; k<=$TIMES; ++k)); do
-        perf stat  -e power/energy-cores/ ../../benchmarks/graph_$m -g $GRAPH --graph_args $GRAPH_ARGS -b $BENCHMARK --benchmark_args $CPU_OVERHEAD $GPU_OVERHEAD -t $nt
-      done
-      echo "#####################"
-    elif [[ "$m" == "fiber" ]]; then
-      echo "#threads: $nt, #streams: increase by algorithm"
-      for ((k=1; k<=$TIMES; ++k)); do
-        perf stat  -e power/energy-cores/ ../../benchmarks/graph_$m -g $GRAPH --graph_args $GRAPH_ARGS -b $BENCHMARK --benchmark_args $CPU_OVERHEAD $GPU_OVERHEAD -t $nt
-      done
-      echo "#####################"
     else
       for ns in ${NUM_STREAMS[@]}; do
         echo "#threads: $nt, #streams: $ns"

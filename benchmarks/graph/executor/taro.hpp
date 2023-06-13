@@ -19,7 +19,7 @@ class TaroGraphExecutor: public GraphExecutor {
 };
 
 TaroGraphExecutor::TaroGraphExecutor(Graph& graph, int dev_id, size_t num_threads, size_t num_streams):
-  GraphExecutor{graph, dev_id, num_threads, num_streams}, _taro{num_threads, num_streams}, _cuda{_taro.cuda_scheduler(num_streams)} {
+  GraphExecutor{graph, dev_id, num_threads, num_streams}, _taro{num_threads}, _cuda{_taro.cuda_scheduler(num_streams)} {
 }
 
 std::pair<double, double> TaroGraphExecutor::run_loop(int cpu_time, int gpu_time) {

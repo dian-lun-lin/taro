@@ -5,6 +5,7 @@ list(APPEND BENCHMARKS
   taro_taskflow
   taro_oblivious
   cudaflow
+  taro
 )
 
 foreach(benchmark IN LISTS BENCHMARKS)

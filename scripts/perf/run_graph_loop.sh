@@ -26,8 +26,7 @@ echo "start running..."
 
 NUM_THREADS=(4)
 NUM_STREAMS=(4)
-#MODE=("cudaflow" "fiber" "taro_callback_v1" "taro_callback_v2" "taro_callback_v3" "taro_poll_v1" "taro_callback_taskflow")
-MODE=("cudaflow" "fiber" "taro_callback_v1" "taro_callback_v3" "taro_poll_v1" "taro_callback_taskflow")
+MODE=("cudaflow" "fiber" "taro_oblivious" "taro")
 GRAPH=$1
 GRAPH_ARGS=$2
 CPU_OVERHEAD=$3
@@ -46,18 +45,6 @@ for m in ${MODE[@]}; do
   for nt in ${NUM_THREADS[@]}; do
     if [[ "$m" == "cudaflow" ]]; then
       echo "#threads: $nt, #streams: default"
-      for ((k=1; k<=$TIMES; ++k)); do
-        perf stat ../../benchmarks/graph_$m -g $GRAPH --graph_args $GRAPH_ARGS -b $BENCHMARK --benchmark_args $CPU_OVERHEAD $GPU_OVERHEAD -t $nt
-      done
-      echo "#####################"
-    elif [[ "$m" == "taro_callback_v2" ]]; then
-      echo "#threads: $nt, #streams: increase by algorithm"
-      for ((k=1; k<=$TIMES; ++k)); do
-        perf stat ../../benchmarks/graph_$m -g $GRAPH --graph_args $GRAPH_ARGS -b $BENCHMARK --benchmark_args $CPU_OVERHEAD $GPU_OVERHEAD -t $nt
-      done
-      echo "#####################"
-    elif [[ "$m" == "fiber" ]]; then
-      echo "#threads: $nt, #streams: increase by algorithm"
       for ((k=1; k<=$TIMES; ++k)); do
         perf stat ../../benchmarks/graph_$m -g $GRAPH --graph_args $GRAPH_ARGS -b $BENCHMARK --benchmark_args $CPU_OVERHEAD $GPU_OVERHEAD -t $nt
       done
