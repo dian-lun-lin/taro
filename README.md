@@ -19,7 +19,7 @@ int main() {
   auto task_a = taro.emplace([&cuda, d_a, N]() -> taro::Coro {
     std::vector<int> h_a(N * N);
     std::iota(h_a.begin(), h_a.end(), 0);
-    co_await cuda.suspend_callback([&d_a, &h_a, N](cudaStream_t stream) {   
+    co_await cuda.suspend_polling([&d_a, &h_a, N](cudaStream_t stream) {   
       cudaMallocAsync(&d_a, N * N * sizeof(int), stream);
       cudaMemcpyAsync(d_a, h_a.data(), N * N * sizeof(int), cudaMemcpyHostToDevice, stream);
     });
@@ -29,7 +29,7 @@ int main() {
   auto task_b = taro.emplace([&cuda, d_b, N]() -> taro::Coro {
     std::vector<int> h_b(N * N);
     std::iota(h_b.begin(), h_b.end(), 0);
-    co_await cuda.suspend_callback([&d_b, &h_b, N](cudaStream_t stream) {    
+    co_await cuda.suspend_polling([&d_b, &h_b, N](cudaStream_t stream) {    
       cudaMallocAsync(&d_b, N * N * sizeof(int), stream);
       cudaMemcpyAsync(d_b, h_b.data(), N * N * sizeof(int), cudaMemcpyHostToDevice, stream);
     });
