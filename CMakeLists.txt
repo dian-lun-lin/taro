@@ -163,10 +163,10 @@ add_subdirectory(unittests)
 endif()
 
 
-# benchmark
-if(TARO_BUILD_BENCHMARKS)
-message(STATUS "building benchmarks ...")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TARO_BENCHMARK_DIR})
-add_subdirectory(benchmarks)
-endif()
+## benchmark
+#if(TARO_BUILD_BENCHMARKS)
+#message(STATUS "building benchmarks ...")
+#set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TARO_BENCHMARK_DIR})
+#add_subdirectory(benchmarks)
+#endif()
 
