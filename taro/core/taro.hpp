@@ -19,19 +19,17 @@ class Pipeline;
 // work-stealing alrotihm using C++20 synchronization primitives
 // callback tries enque tasks back to original worker to minimize conext switch
 // we don't use notifier as it cannot wake up a specific waiting thread
-// we use C++ binary semaphore for each thread instead
+// we use C++ atomic for each thread instead
 //
 // C++20 synchronization primitives we use:
 // jthread
-// C++ binary semaphore
 // latch
 // atomic.wait()
+// atomic.notify_one()
 //
 // As suggested by CUDA doc, we use cudaLaunchHostFunc rather than cudaStreamAddCallback
 // cudaStreamAddcallback
-// cudaStream is handled by Taro
 // work-stealing approach
-// TODO: check memory order
 //
 // ==========================================================================
 //
