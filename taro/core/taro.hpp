@@ -52,6 +52,7 @@ class Taro {
   public:
 
     Taro(size_t num_threads);
+    ~Taro();
 
     template <typename C, std::enable_if_t<is_static_task_v<C>, void>* = nullptr>
     TaskHandle emplace(C&&);
@@ -156,7 +157,7 @@ Taro::Taro(size_t num_threads):
           _exploit_task(*worker);
 
           if(!_explore_task(*worker, stop)) {
-            return; // stop
+            return;
           }
         } while(_pending_tasks.load() > 0);
 
@@ -174,6 +175,17 @@ Taro::Taro(size_t num_threads):
 
   initial_done.wait();
 }
+
+inline
+Taro::~Taro() {
+  _request_stop();
+  for(auto& t: _threads) {
+    if(t.joinable()) {
+      t.join();
+    }
+  }
+}
+
 
 inline
 auto Taro::suspend() {
@@ -297,6 +309,11 @@ void Taro::_init() {
 
 inline
 void Taro::schedule() {
+  if(_tasks.empty()) {
+    _request_stop();
+    return;
+  }
+
   _init();
 
   std::vector<Task*> srcs;

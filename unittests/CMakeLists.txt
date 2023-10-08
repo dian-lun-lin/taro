@@ -2,6 +2,7 @@ enable_testing()
 include(${TARO_3RD_PARTY_DIR}/doctest/doctest.cmake)
 
 list(APPEND TARO_UNITTESTS
+  simple
   events
 )
 
