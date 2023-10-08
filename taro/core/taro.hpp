@@ -9,6 +9,7 @@ namespace taro { // begin of namespace taro ===================================
 
 class Taro;
 class cudaScheduler;
+class EventScheduler;
 class Pipeline;
 
 // TODO: memory_order
@@ -43,6 +44,8 @@ class Taro {
 
   friend class Pipeline;
   friend class cudaScheduler;
+  friend class EventScheduler;
+
   friend void _cuda_callback(void* void_args);
   friend void _cuda_polling(void* void_args);
 
@@ -69,6 +72,7 @@ class Taro {
     // Scheduler declare
     cudaScheduler cuda_scheduler(size_t num_streams);
     Pipeline pipeline_scheduler(size_t num_pipes, size_t num_lines, size_t num_tokens);
+    EventScheduler event_scheduler(size_t num_events);
 
   private:
 
