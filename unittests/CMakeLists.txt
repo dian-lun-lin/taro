@@ -3,7 +3,8 @@ include(${TARO_3RD_PARTY_DIR}/doctest/doctest.cmake)
 
 list(APPEND TARO_UNITTESTS
   simple
-  events
+  event
+  semaphore
 )
 
 list(APPEND TARO_CUDA_UNITTESTS

@@ -8,9 +8,13 @@
 namespace taro { // begin of namespace taro ===================================
 
 class Taro;
-class cudaScheduler;
-class EventScheduler;
 class Pipeline;
+class cudaAwait;
+class EventAwait;
+
+template <size_t V>
+class SemaphoreAwait;
+
 
 // TODO: memory_order
 // TODO: can we assign a kenel mutex for each stream
@@ -43,8 +47,11 @@ class Pipeline;
 class Taro {
 
   friend class Pipeline;
-  friend class cudaScheduler;
-  friend class EventScheduler;
+  friend class cudaAwait;
+  friend class EventAwait;
+
+  template <size_t V>
+  friend class SemaphoreAwait;
 
   friend void _cuda_callback(void* void_args);
   friend void _cuda_polling(void* void_args);
@@ -70,10 +77,15 @@ class Taro {
 
     bool is_DAG() const;
 
-    // Scheduler declare
-    cudaScheduler cuda_scheduler(size_t num_streams);
-    Pipeline pipeline_scheduler(size_t num_pipes, size_t num_lines, size_t num_tokens);
-    EventScheduler event_scheduler(size_t num_events);
+    // Await declare
+    cudaAwait cuda_await(size_t num_streams);
+    EventAwait event_await(size_t num_events);
+
+    template <size_t V>
+    SemaphoreAwait<V> semaphore_await(size_t num_semaphores);
+
+    // Pattern declare
+    Pipeline pipeline(size_t num_pipes, size_t num_lines, size_t num_tokens);
 
   private:
 

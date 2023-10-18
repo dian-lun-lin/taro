@@ -18,7 +18,7 @@ class Event {
     size_t task_id;
   };
 
-  friend class EventScheduler;
+  friend class EventAwait;
 
   private:
 
@@ -34,15 +34,15 @@ class Event {
 
 // ==========================================================================
 //
-// Declaration of class EventScheduler
+// Declaration of class EventAwait
 //
 // ==========================================================================
 
-class EventScheduler {
+class EventAwait {
 
   public:
 
-    EventScheduler(Taro& taro, size_t num_events);
+    EventAwait(Taro& taro, size_t num_events);
 
     auto until(size_t eid);
 
@@ -65,19 +65,19 @@ class EventScheduler {
 
 // ==========================================================================
 //
-// Definition of class EventScheduler
+// Definition of class EventAwait
 //
 // ==========================================================================
 
 inline
-EventScheduler::EventScheduler(Taro& taro, size_t num_events): _taro{taro}, _events{num_events} {
+EventAwait::EventAwait(Taro& taro, size_t num_events): _taro{taro}, _events{num_events} {
 }
 
-auto EventScheduler::until(size_t eid) {
+auto EventAwait::until(size_t eid) {
   struct event_awaiter {
-    EventScheduler& events;
+    EventAwait& events;
     size_t eid;
-    event_awaiter(EventScheduler& events, size_t eid): events{events}, eid{eid} {}
+    event_awaiter(EventAwait& events, size_t eid): events{events}, eid{eid} {}
 
     bool await_ready() const noexcept {
       return events.is_set(eid);
@@ -99,7 +99,7 @@ auto EventScheduler::until(size_t eid) {
   return event_awaiter{*this, eid};
 }
 
-void EventScheduler::set(size_t eid) {
+void EventAwait::set(size_t eid) {
   auto old_state = _events[eid]._state.exchange(Event::STAT::SET);
   if(old_state == Event::STAT::WAIT) {
     auto* taro = _events[eid]._data.taro;
@@ -118,20 +118,20 @@ void EventScheduler::set(size_t eid) {
   }
 }
 
-bool EventScheduler::is_set(size_t eid) const noexcept {
+bool EventAwait::is_set(size_t eid) const noexcept {
   return _events[eid]._state.load() == Event::STAT::SET;
 }
 
 
 // ==========================================================================
 //
-// Definition of event_scheduler in Taro
+// Definition of event_await in Taro
 //
 // ==========================================================================
 
 inline
-EventScheduler Taro::event_scheduler(size_t num_events) {
-  return EventScheduler(*this, num_events);
+EventAwait Taro::event_await(size_t num_events) {
+  return EventAwait(*this, num_events);
 }
 
 } // end of namespace taro ==============================================

@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 #include <taro.hpp>
-#include <taro/scheduler/cuda.hpp>
+#include <taro/await/cuda.hpp>
 #include <taro/algorithm/cuda.hpp>
 #include <vector>
 #include <algorithm>
@@ -24,7 +24,7 @@ void linear_chain(size_t num_tasks, size_t num_threads, size_t num_streams) {
   cudaMallocManaged(&counter, sizeof(int));
 
   taro::Taro taro{num_threads};
-  auto cuda = taro.cuda_scheduler(num_streams);
+  auto cuda = taro.cuda_await(num_streams);
 
   std::vector<taro::TaskHandle> _tasks(num_tasks);
 
@@ -32,12 +32,12 @@ void linear_chain(size_t num_tasks, size_t num_threads, size_t num_streams) {
     _tasks[t] = taro.emplace([t, counter, &cuda]() -> taro::Coro {
       REQUIRE(*counter == t); 
       if(t % 3 == 0) {
-        co_await cuda.suspend_callback([counter](cudaStream_t st) {
+        co_await cuda.until_callback([counter](cudaStream_t st) {
           count<<<8, 32, 0, st>>>(counter);
         });
       }
       else if(t % 3 == 1) {
-        co_await cuda.suspend_polling([counter](cudaStream_t st) {
+        co_await cuda.until_polling([counter](cudaStream_t st) {
           count<<<8, 32, 0, st>>>(counter);
         });
       }

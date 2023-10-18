@@ -100,7 +100,7 @@ void Pipeline::set_pipe(size_t pid, C&& c) {
   _setted[pid] = true;
 }
 
-Pipeline Taro::pipeline_scheduler(size_t num_pipes, size_t num_lines, size_t num_tokens) {
+Pipeline Taro::pipeline(size_t num_pipes, size_t num_lines, size_t num_tokens) {
   return Pipeline{*this, num_pipes, num_lines, num_tokens};
 }
 

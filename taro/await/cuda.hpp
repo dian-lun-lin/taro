@@ -7,16 +7,16 @@ namespace taro { // begin of namespace taro ===================================
 
 // TODO cuda event recycle
 
-class cudaScheduler {
+class cudaAwait {
 
   struct cudaCallbackData {
-    cudaScheduler* cuda;
+    cudaAwait* cuda;
     Worker* worker;
     size_t task_id;
     size_t stream_id;
   };
   struct cudaPollingData {
-    cudaScheduler* cuda;
+    cudaAwait* cuda;
     Task* ptask; // polling task
     Worker* worker;
     size_t task_id;
@@ -36,14 +36,14 @@ class cudaScheduler {
 
   public:
 
-    cudaScheduler(Taro& taro, size_t num_streams);
-    ~cudaScheduler();
+    cudaAwait(Taro& taro, size_t num_streams);
+    ~cudaAwait();
 
     template <typename C, std::enable_if_t<is_kernel_v<C>, void>* = nullptr>
-    auto suspend_polling(C&&);
+    auto until_polling(C&&);
 
     template <typename C, std::enable_if_t<is_kernel_v<C>, void>* = nullptr>
-    auto suspend_callback(C&&);
+    auto until_callback(C&&);
 
     template <typename C, std::enable_if_t<is_kernel_v<C>, void>* = nullptr>
     auto wait(C&&);
@@ -63,7 +63,7 @@ class cudaScheduler {
 };
 
 inline
-cudaScheduler::cudaScheduler(Taro& taro, size_t num_streams): _taro{taro} {
+cudaAwait::cudaAwait(Taro& taro, size_t num_streams): _taro{taro} {
 
   //cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
   _in_stream_tasks.resize(num_streams, 0);
@@ -75,7 +75,7 @@ cudaScheduler::cudaScheduler(Taro& taro, size_t num_streams): _taro{taro} {
 }
 
 inline
-cudaScheduler::~cudaScheduler() {
+cudaAwait::~cudaAwait() {
   for(auto& st: _streams) {
     cudaStreamDestroy(st.st);
   }
@@ -92,7 +92,7 @@ inline
 void _cuda_callback(void* void_args) {
 
   // unpack
-  auto* data = (cudaScheduler::cudaCallbackData*) void_args;
+  auto* data = (cudaAwait::cudaCallbackData*) void_args;
   auto* cuda = data->cuda;
   auto& taro = cuda->_taro;
   auto* worker = data->worker;
@@ -127,7 +127,7 @@ inline
 void _cuda_polling(void* void_args) {
 
   // unpack
-  auto* data = (cudaScheduler::cudaPollingData*) void_args;
+  auto* data = (cudaAwait::cudaPollingData*) void_args;
   auto* cuda = data->cuda;
   auto& taro = cuda->_taro;
   auto* worker = data->worker;
@@ -153,7 +153,7 @@ void _cuda_polling(void* void_args) {
   taro._callback_polling_cnt.fetch_sub(1);
 }
 
-Coro _cuda_polling_query(cudaScheduler::cudaPollingData& data) {
+Coro _cuda_polling_query(cudaAwait::cudaPollingData& data) {
   while(cudaEventQuery(data.event) != cudaSuccess) {
     co_await data.cuda->_taro.suspend(data.ptask);
   }
@@ -164,18 +164,18 @@ Coro _cuda_polling_query(cudaScheduler::cudaPollingData& data) {
 
 // ==========================================================================
 //
-// Definition of class cudaScheduler
+// Definition of class cudaAwait
 //
 // ==========================================================================
 
 template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
-auto cudaScheduler::suspend_callback(C&& c) {
+auto cudaAwait::until_callback(C&& c) {
 
   struct cuda_awaiter: std::suspend_always {
     std::function<void(cudaStream_t)> kernel;
     cudaCallbackData data;
 
-    explicit cuda_awaiter(cudaScheduler* cuda, C&& c) noexcept : kernel{std::forward<C>(c)} {
+    explicit cuda_awaiter(cudaAwait* cuda, C&& c) noexcept : kernel{std::forward<C>(c)} {
       data.cuda = cuda; 
     }
     
@@ -204,13 +204,13 @@ auto cudaScheduler::suspend_callback(C&& c) {
 }
 
 template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
-auto cudaScheduler::suspend_polling(C&& c) {
+auto cudaAwait::until_polling(C&& c) {
 
   struct cuda_awaiter: std::suspend_always {
     std::function<void(cudaStream_t)> kernel;
     cudaPollingData data;
 
-    explicit cuda_awaiter(cudaScheduler* cuda, C&& c) noexcept : kernel{std::forward<C>(c)} {
+    explicit cuda_awaiter(cudaAwait* cuda, C&& c) noexcept : kernel{std::forward<C>(c)} {
       data.cuda = cuda;
     }
     
@@ -249,7 +249,7 @@ auto cudaScheduler::suspend_polling(C&& c) {
 }
 
 template <typename C, std::enable_if_t<is_kernel_v<C>, void>*>
-auto cudaScheduler::wait(C&& c) {
+auto cudaAwait::wait(C&& c) {
   // choose the best stream id
   size_t stream_id = _acquire_stream();
   cudaEvent_t e;
@@ -262,7 +262,7 @@ auto cudaScheduler::wait(C&& c) {
 }
 
 inline
-size_t cudaScheduler::_acquire_stream() {
+size_t cudaAwait::_acquire_stream() {
   size_t stream_id;
   {
     std::scoped_lock lock(_stream_mtx);
@@ -276,7 +276,7 @@ size_t cudaScheduler::_acquire_stream() {
 }
 
 inline
-void cudaScheduler::_release_stream(size_t stream_id) {
+void cudaAwait::_release_stream(size_t stream_id) {
   {
     std::scoped_lock lock(_stream_mtx);
     --_in_stream_tasks[stream_id];
@@ -285,13 +285,13 @@ void cudaScheduler::_release_stream(size_t stream_id) {
 
 // ==========================================================================
 //
-// Definition of cuda_scheduler in Taro
+// Definition of cuda_await in Taro
 //
 // ==========================================================================
 
 inline
-cudaScheduler Taro::cuda_scheduler(size_t num_streams) {
-  return cudaScheduler(*this, num_streams);
+cudaAwait Taro::cuda_await(size_t num_streams) {
+  return cudaAwait(*this, num_streams);
 }
 
 

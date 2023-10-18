@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 #include <taro.hpp>
-#include <taro/scheduler/events.hpp>
+#include <taro/await/event.hpp>
 #include <vector>
 #include <algorithm>
 
@@ -13,7 +13,7 @@
 
 void simple(size_t num_threads, size_t num_events) {
   taro::Taro taro{num_threads};
-  auto events = taro.event_scheduler(num_events);
+  auto events = taro.event_await(num_events);
 
   std::vector<int> ans(num_events, 0);
 

@@ -81,7 +81,7 @@ target_compile_options(
 set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall -Wextra -Wfatal-errors")
 #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 #set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" "-std=c++20 -Xcompiler -fsanitize=thread -Xcompiler -std=c++20 --extended-lambda" )
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" "-std=c++20 -Xcompiler -std=c++20 --extended-lambda" )
+#set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" "-fcoroutines -std=c++20 -Xcompiler -std=c++20 --extended-lambda" )
 #set(CUDA_NVCC_FLAGS_DEBUG "${CUDA_NVCC_FLAGS_DEBUG}" "-lineinfo -Xcompiler -fsanitize=thread")
 #set(CUDA_NVCC_FLAGS_RELEASE "${CUDA_NVCC_FLAGS_RELEASE}" "-O2 -w ")
 #SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread") 
@@ -100,7 +100,7 @@ target_link_libraries(
 # CXX target properties
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-find_package(CUDA QUIET REQUIRED)
+#find_package(CUDA QUIET REQUIRED)
 # Thread
 find_package(Threads REQUIRED)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -143,14 +143,14 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 #-----------------------
 
 #find -arch
-include(FindCUDA)
-set(CUDA_ARCH_LIST Auto CACHE STRING
-    "List of CUDA architectures (e.g. Pascal, Volta, etc) or \
-compute capability versions (6.1, 7.0, etc) to generate code for. \
-Set to Auto for automatic detection (default)."
-)
-cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS ${CUDA_ARCH_LIST})
-list(APPEND CUDA_NVCC_FLAGS ${CUDA_ARCH_FLAGS})
+#include(FindCUDA)
+#set(CUDA_ARCH_LIST Auto CACHE STRING
+    #"List of CUDA architectures (e.g. Pascal, Volta, etc) or \
+#compute capability versions (6.1, 7.0, etc) to generate code for. \
+#Set to Auto for automatic detection (default)."
+#)
+#cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS ${CUDA_ARCH_LIST})
+#list(APPEND CUDA_NVCC_FLAGS ${CUDA_ARCH_FLAGS})
 
 
 # test
@@ -163,7 +163,7 @@ add_subdirectory(unittests)
 endif()
 
 
-## benchmark
+# benchmark
 #if(TARO_BUILD_BENCHMARKS)
 #message(STATUS "building benchmarks ...")
 #set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${TARO_BENCHMARK_DIR})

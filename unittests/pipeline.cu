@@ -1,8 +1,8 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 #include <taro.hpp>
-#include <taro/scheduler/pipeline.hpp>
-#include <taro/scheduler/cuda.hpp>
+#include <taro/await/pipeline.hpp>
+#include <taro/await/cuda.hpp>
 #include <taro/algorithm/cuda.hpp>
 #include <vector>
 #include <algorithm>
@@ -27,8 +27,8 @@ void pipeline(size_t num_threads, size_t num_streams, size_t num_pipes, size_t n
   cudaMemset(counter, 0, num_tokens * sizeof(int));
 
   taro::Taro taro{num_threads};
-  auto cuda = taro.cuda_scheduler(num_streams);
-  auto pipeline = taro.pipeline_scheduler(num_pipes, num_lines, num_tokens);
+  auto pipeline = taro.pipeline(num_pipes, num_lines, num_tokens);
+  auto cuda = taro.cuda_await(num_streams);
 
   // first pipe
   pipeline.set_pipe(0, [counter, &cuda, &pipeline]() -> taro::Coro {
@@ -37,7 +37,7 @@ void pipeline(size_t num_threads, size_t num_streams, size_t num_pipes, size_t n
 
       REQUIRE(*(counter + token) == 0); 
 
-      co_await cuda.suspend_callback([=](cudaStream_t st) {
+      co_await cuda.until_callback([=](cudaStream_t st) {
         count<<<8, 32, 0, st>>>(counter + token);
       });
 
@@ -57,7 +57,7 @@ void pipeline(size_t num_threads, size_t num_streams, size_t num_pipes, size_t n
 
         REQUIRE(*(counter + token) == p); 
 
-        co_await cuda.suspend_callback([=](cudaStream_t st) {
+        co_await cuda.until_callback([=](cudaStream_t st) {
           count<<<8, 32, 0, st>>>(counter + token);
         });
 

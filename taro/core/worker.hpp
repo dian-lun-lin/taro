@@ -14,8 +14,12 @@ class Worker {
 
   friend class Taro;
   friend class Pipeline;
-  friend class cudaScheduler;
-  friend class EventScheduler;
+  friend class cudaAwait;
+  friend class EventAwait;
+
+  template <size_t V>
+  friend class SemaphoreAwait;
+
   friend void _cuda_callback(void* void_args);
   friend void _cuda_polling(void* void_args);
 
