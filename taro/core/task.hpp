@@ -56,7 +56,7 @@ constexpr auto get_index_v = get_index<T, Ts...>::value;
 class Task {
 
   friend class Taro;
-  friend class cudaScheduler;
+  friend class cudaAwait;
   friend class Pipeline;
   friend class TaskHandle;
 
