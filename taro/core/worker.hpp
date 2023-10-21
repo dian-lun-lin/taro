@@ -15,6 +15,7 @@ class Worker {
   friend class Taro;
   friend class Pipeline;
   friend class cudaAwait;
+  friend class syclAwait;
   friend class EventAwait;
 
   template <size_t V>
@@ -22,6 +23,8 @@ class Worker {
 
   friend void _cuda_callback(void* void_args);
   friend void _cuda_polling(void* void_args);
+
+  friend void _sycl_polling(void* void_args);
 
   public:
 

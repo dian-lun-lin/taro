@@ -11,7 +11,6 @@ namespace taro { // begin of namespace taro ===================================
 struct Coro { // Coroutine needs to be struct
 
   friend class Taro;
-  friend class cudaScheduler;
   friend class Pipeline;
   friend class Task;
 

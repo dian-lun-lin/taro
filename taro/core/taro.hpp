@@ -5,11 +5,22 @@
 #include "task.hpp"
 #include "coro.hpp"
 
+
+
+// forward deaclare for SYCL
+namespace sycl {
+  inline namespace _V1 {
+    class queue;
+  }
+}
+
+
 namespace taro { // begin of namespace taro ===================================
 
 class Taro;
 class Pipeline;
 class cudaAwait;
+class syclAwait;
 class EventAwait;
 
 template <size_t V>
@@ -48,6 +59,7 @@ class Taro {
 
   friend class Pipeline;
   friend class cudaAwait;
+  friend class syclAwait;
   friend class EventAwait;
 
   template <size_t V>
@@ -55,6 +67,7 @@ class Taro {
 
   friend void _cuda_callback(void* void_args);
   friend void _cuda_polling(void* void_args);
+  friend void _sycl_polling(void* void_args);
 
   public:
 
@@ -79,8 +92,8 @@ class Taro {
 
     // Await declare
     cudaAwait cuda_await(size_t num_streams);
+    syclAwait sycl_await(sycl::queue& que);
     EventAwait event_await(size_t num_events);
-
     template <size_t V>
     SemaphoreAwait<V> semaphore_await(size_t num_semaphores);
 

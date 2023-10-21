@@ -8,6 +8,12 @@ project(Taro VERSION 1.0.0 LANGUAGES CXX)
 # Turn on the verbose
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
+option(TARO_BUILD_BENCHMARKS "Enables builds of benchmarks" OFF)
+option(TARO_BUILD_CUDA "Enables builds of cuda code" OFF)
+option(TARO_BUILD_SYCL "Enables builds of sycl code" OFF)
+option(TARO_BUILD_EXAMPLES "Enables builds of examples" OFF)
+option(TARO_BUILD_TESTS "Enables builds of tests" ON)
+
 # defult release build
 set(TARO_DEFAULT_BUILD_TYPE "Release")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -34,9 +40,20 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   endif()
 ## clang++
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "15.0")
-    message(FATAL_ERROR "\n Taro requires clang++ at least v15.0")
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "14.0")
+    message(FATAL_ERROR "\n Taro requires clang++ at least v14.0")
   endif() 
+endif()
+
+# sycl compiler options (currently support only DPC++)
+if(TARO_BUILD_SYCL)
+  message(STATUS "Configuring SYCL compiler options ...")
+  message(STATUS "You may specify -DTARO_BUILD_SYCL_BITCODE=ptx64 for CUDA devices")
+  list(APPEND TARO_SYCL_OPTIONS -fsycl -fsycl-unnamed-lambda)
+  if(TARO_BUILD_SYCL_BITCODE STREQUAL "ptx64")
+    message(STATUS "Configuring SYCL compiler options to CUDA ptx64 ...")
+    list(APPEND TARO_SYCL_OPTIONS -fsycl-targets=nvptx64-nvidia-cuda)
+  endif()
 endif()
 
 # Args
