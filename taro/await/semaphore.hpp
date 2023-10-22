@@ -103,15 +103,7 @@ void SemaphoreAwait<V>::release(size_t sid) {
     Worker* worker = _semaphores[sid]._waiters.front().first;
     size_t task_id = _semaphores[sid]._waiters.front().second;
     _semaphores[sid]._waiters.pop();
-    {
-      std::scoped_lock lock(worker->_mtx);
-      _taro._enqueue(*worker, _taro._tasks[task_id].get(), TaskPriority::HIGH);
-    }
-
-    if(worker->_status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
-      worker->_status.notify_one();
-    }
-    _taro._notify(*worker);
+    _taro._enqueue_back(worker, task_id);
     return;
   }
 

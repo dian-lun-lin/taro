@@ -105,16 +105,7 @@ void EventAwait::set(size_t eid) {
     auto* taro = _events[eid]._data.taro;
     auto* worker = _events[eid]._data.worker;
     auto task_id = _events[eid]._data.task_id;
-    
-    {
-      std::scoped_lock lock(worker->_mtx);
-      taro->_enqueue(*worker, taro->_tasks[task_id].get(), TaskPriority::HIGH);
-    }
-
-    if(worker->_status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
-      worker->_status.notify_one();
-    }
-    taro->_notify(*worker);
+    taro->_enqueue_back(*worker, task_id);
   }
 }
 

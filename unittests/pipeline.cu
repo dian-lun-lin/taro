@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 #include <taro.hpp>
-#include <taro/await/pipeline.hpp>
+#include <taro/pattern/pipeline.hpp>
 #include <taro/await/cuda.hpp>
 #include <taro/algorithm/cuda.hpp>
 #include <vector>

@@ -62,22 +62,7 @@ void _sycl_polling(void* void_args) {
   auto* worker = data->worker;
   size_t task_id = data->task_id;
   
-
-  {
-    std::scoped_lock lock(worker->_mtx);
-    taro._enqueue(*worker, taro._tasks[task_id].get(), TaskPriority::HIGH);
-  }
-
-  //worker->_status.store(Worker::STAT::SIGNALED);
-  if(worker->_status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
-    worker->_status.notify_one();
-  }
-  taro._notify(*worker);
-
-  // if we don't have counter,
-  // taro will not wait for this function to finish
-  // and may be destroyed, inducing seg fault
-  taro._callback_polling_cnt.fetch_sub(1);
+  taro._enqueue_back(*worker, task_id);
 }
 
 Coro _sycl_polling_query(syclAwait::syclPollingData& data) {
@@ -122,7 +107,6 @@ auto syclAwait::until_polling(C&& c) {
 
       std::get_if<Task::CoroTask>(&data.ptask->_handle)->set_inner();
       
-      data.sycl->_taro._callback_polling_cnt.fetch_add(1);
       data.sycl->_taro._enqueue(*data.worker, data.ptask, TaskPriority::LOW);
 
       return;

@@ -101,25 +101,7 @@ void _cuda_callback(void* void_args) {
   
   cuda->_release_stream(stream_id);
 
-  {
-    // high priortiy queue is owned by the callback function
-    // Due to CUDA runtime, we cannot guarntee whether the cuda callback function is called sequentially
-    // we need a lock to atomically enqueue the task
-    // note that there is no lock in enqueue functions
-    
-    std::scoped_lock lock(worker->_mtx);
-    taro._enqueue(*worker, taro._tasks[task_id].get(), TaskPriority::HIGH);
-  }
-
-  //worker->_status.store(Worker::STAT::SIGNALED);
-  if(worker->_status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
-    worker->_status.notify_one();
-  }
-  taro._notify(*worker);
-
-  // if we don't have counter,
-  // taro will not wait for this function to finish
-  // and may be destroyed, inducing seg fault
+  taro._enqueue_back(*worker, task_id);
   taro._callback_polling_cnt.fetch_sub(1);
 }
 
@@ -136,21 +118,7 @@ void _cuda_polling(void* void_args) {
   
   cuda->_release_stream(stream_id);
 
-  {
-    std::scoped_lock lock(worker->_mtx);
-    taro._enqueue(*worker, taro._tasks[task_id].get(), TaskPriority::HIGH);
-  }
-
-  //worker->_status.store(Worker::STAT::SIGNALED);
-  if(worker->_status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
-    worker->_status.notify_one();
-  }
-  taro._notify(*worker);
-
-  // if we don't have counter,
-  // taro will not wait for this function to finish
-  // and may be destroyed, inducing seg fault
-  taro._callback_polling_cnt.fetch_sub(1);
+  taro._enqueue_back(*worker, task_id);
 }
 
 Coro _cuda_polling_query(cudaAwait::cudaPollingData& data) {
@@ -238,7 +206,6 @@ auto cudaAwait::until_polling(C&& c) {
 
       std::get_if<Task::CoroTask>(&data.ptask->_handle)->set_inner();
       
-      data.cuda->_taro._callback_polling_cnt.fetch_add(1);
       data.cuda->_taro._enqueue(*data.worker, data.ptask, TaskPriority::LOW);
 
       return;

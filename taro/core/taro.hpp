@@ -113,6 +113,7 @@ class Taro {
 
     void _exploit_task(Worker& worker);
     bool _explore_task(Worker& worker, const std::stop_token& stop);
+    void _enqueue_back(Worker& worker, size_t task_id);
 
     void _request_stop();
 
@@ -311,6 +312,28 @@ bool Taro::_explore_task(Worker& worker, const std::stop_token& stop) {
   } while(!stop.stop_requested());
 
   return false; // stop
+}
+
+inline
+void Taro::_enqueue_back(Worker& worker, size_t task_id) {
+  {
+    // The worker that is enqueued may not be this_worker
+    // we need a lock to atomically enqueue the task
+    // note that there is no lock in enqueue functions
+    std::scoped_lock lock(worker._mtx);
+    _enqueue(worker, _tasks[task_id].get(), TaskPriority::HIGH);
+  }
+
+  if(worker._status.exchange(Worker::STAT::SIGNALED) == Worker::STAT::SLEEP) {
+    worker._status.notify_one();
+  }
+  // TODO: do we need to notify another worker if we already wake a worker up?
+  _notify(worker);
+
+  //// if we don't have counter,
+  //// taro will not wait for this function to finish
+  //// and may be destroyed, inducing seg fault
+  //_callback_polling_cnt.fetch_sub(1);
 }
 
 inline
