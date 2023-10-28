@@ -39,23 +39,23 @@ void simple(size_t num_threads, size_t num_semaphores) {
 
 }
 
-TEST_CASE("simple.1thread.1semaphore" * doctest::timeout(300)) {
+TEST_CASE("semarphore.simple.1thread.1semaphore" * doctest::timeout(300)) {
   simple(1, 1);
 }
 
-TEST_CASE("simple.2thread.1semaphore" * doctest::timeout(300)) {
+TEST_CASE("semarphore.simple.2thread.1semaphore" * doctest::timeout(300)) {
   simple(2, 1);
 }
 
-TEST_CASE("simple.4thread.5semaphore" * doctest::timeout(300)) {
+TEST_CASE("semarphore.simple.4thread.5semaphore" * doctest::timeout(300)) {
   simple(4, 5);
 }
 
-TEST_CASE("simple.3thread.119semaphore" * doctest::timeout(300)) {
+TEST_CASE("semarphore.simple.3thread.119semaphore" * doctest::timeout(300)) {
   simple(3, 119);
 }
 
-TEST_CASE("simple.4thread.2779semaphore" * doctest::timeout(300)) {
+TEST_CASE("semarphore.simple.4thread.2779semaphore" * doctest::timeout(300)) {
   simple(4, 2779);
 }
 

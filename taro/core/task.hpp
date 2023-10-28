@@ -58,6 +58,7 @@ class Task {
   friend class Taro;
   friend class cudaAwait;
   friend class syclAwait;
+  friend class AsyncIOAwait;
   friend class Pipeline;
   friend class TaskHandle;
 

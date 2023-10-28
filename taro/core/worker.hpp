@@ -17,6 +17,7 @@ class Worker {
   friend class cudaAwait;
   friend class syclAwait;
   friend class EventAwait;
+  friend class AsyncIOAwait;
 
   template <size_t V>
   friend class SemaphoreAwait;
@@ -25,6 +26,7 @@ class Worker {
   friend void _cuda_polling(void* void_args);
 
   friend void _sycl_polling(void* void_args);
+  friend void _async_io_consume(void* void_args);
 
   public:
 

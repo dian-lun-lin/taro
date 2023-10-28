@@ -21,6 +21,7 @@ class Taro;
 class Pipeline;
 class cudaAwait;
 class syclAwait;
+class AsyncIOAwait;
 class EventAwait;
 
 template <size_t V>
@@ -61,6 +62,7 @@ class Taro {
   friend class cudaAwait;
   friend class syclAwait;
   friend class EventAwait;
+  friend class AsyncIOAwait;
 
   template <size_t V>
   friend class SemaphoreAwait;
@@ -68,6 +70,7 @@ class Taro {
   friend void _cuda_callback(void* void_args);
   friend void _cuda_polling(void* void_args);
   friend void _sycl_polling(void* void_args);
+  friend void _async_io_consume(AsyncIOAwait& async_io);
 
   public:
 
@@ -96,6 +99,7 @@ class Taro {
     EventAwait event_await(size_t num_events);
     template <size_t V>
     SemaphoreAwait<V> semaphore_await(size_t num_semaphores);
+    AsyncIOAwait async_io_await(size_t queue_size);
 
     // Pattern declare
     Pipeline pipeline(size_t num_pipes, size_t num_lines, size_t num_tokens);
@@ -245,10 +249,10 @@ auto Taro::suspend(Task* task) {
     explicit awaiter(Taro& taro, Worker* worker, Task* task) noexcept : _taro{taro}, _worker{worker}, _task{task} {}
     
     bool await_ready() {
-      _taro._enqueue(*_worker, _task, TaskPriority::LOW);
       return false;
     }
     void await_suspend(std::coroutine_handle<> coro) {
+      _taro._enqueue(*_worker, _task, TaskPriority::LOW);
     }
     void await_resume() {
     }

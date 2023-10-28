@@ -103,7 +103,7 @@ void SemaphoreAwait<V>::release(size_t sid) {
     Worker* worker = _semaphores[sid]._waiters.front().first;
     size_t task_id = _semaphores[sid]._waiters.front().second;
     _semaphores[sid]._waiters.pop();
-    _taro._enqueue_back(worker, task_id);
+    _taro._enqueue_back(*worker, task_id);
     return;
   }
 
