@@ -36,7 +36,7 @@ int main() {
   
   // D2H and free
   auto task_d = taro.emplace([=, &h_b, &cuda]() -> taro::Coro { 
-    co_await cuda.until_callback([=, &h_b](cudaStream_t stream) {   // polling method
+    co_await cuda.until_callback([=, &h_b](cudaStream_t stream) {   // callback method
       cudaMemcpyAsync(h_b.data(), d_a, N * N * sizeof(int), cudaMemcpyDeviceToHost, stream);
       cudaFreeAsync(d_a, stream);
     });
